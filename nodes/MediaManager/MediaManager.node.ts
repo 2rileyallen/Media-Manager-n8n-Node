@@ -16,6 +16,24 @@ import { exec } from 'child_process';
 const execAsync = promisify(exec);
 
 /**
+ * A helper function to safely extract an error message from an unknown error type.
+ * @param error The error object, which is of type 'unknown'.
+ * @returns A string representing the error message.
+ */
+function getErrorMessage(error: unknown): string {
+	if (error instanceof Error) {
+		// The error might have a 'stderr' property if it comes from execAsync
+		const execError = error as Error & { stderr?: string };
+		return execError.stderr || execError.message;
+	}
+	if (typeof error === 'object' && error !== null && 'message' in error && typeof (error as any).message === 'string') {
+		return (error as any).message;
+	}
+	return String(error);
+}
+
+
+/**
  * Executes a command for the manager.py script and handles parsing.
  * @param command The command to run (e.g., 'list', 'update')
  */
@@ -46,13 +64,8 @@ async function executeManagerCommand(
 		return JSON.parse(stdout);
 	} catch (error) {
 		console.error(`Error executing command: ${fullCommand}`, error);
-		// FIX: Safely access properties on the 'unknown' error object.
-		if (error instanceof Error) {
-			const execError = error as any; // Cast to access potential 'stderr' property
-			const errorMessage = execError.stderr || execError.message || 'Unknown execution error';
-			throw new NodeOperationError(this.getNode(), `Failed to execute manager.py command: ${command}. Raw Error: ${errorMessage}`);
-		}
-		throw new NodeOperationError(this.getNode(), `An unknown error occurred while executing the manager script.`);
+		const errorMessage = getErrorMessage(error);
+		throw new NodeOperationError(this.getNode(), `Failed to execute manager.py command: ${command}. Raw Error: ${errorMessage}`);
 	}
 }
 
@@ -150,12 +163,8 @@ export class MediaManager implements INodeType {
 						}
 					}
 				} catch (error) {
-					// FIX: Safely access the error message.
-					if (error instanceof Error) {
-						console.error("Failed to load subcommands:", error.message);
-					} else {
-						console.error("An unknown error occurred while loading subcommands.");
-					}
+					const message = getErrorMessage(error);
+					console.error("Failed to load subcommands:", message);
 				}
 				return returnOptions;
 			},
@@ -171,12 +180,8 @@ export class MediaManager implements INodeType {
 					const schema = subcommands[subcommandName]?.input_schema || [];
 					return schema;
 				} catch(error) {
-					// FIX: Safely access the error message.
-					if (error instanceof Error) {
-						console.error(`Failed to load parameters for ${subcommandName}:`, error.message);
-					} else {
-						console.error(`An unknown error occurred while loading parameters for ${subcommandName}.`);
-					}
+					const message = getErrorMessage(error);
+					console.error(`Failed to load parameters for ${subcommandName}:`, message);
 					return [];
 				}
 			} as any,
@@ -206,11 +211,8 @@ export class MediaManager implements INodeType {
 			const returnData = this.helpers.returnJsonArray(Array.isArray(result) ? result : [result]);
 			return [returnData];
 		} catch (error) {
-			// FIX: Safely access the error message.
-			if (error instanceof Error) {
-				throw new NodeOperationError(this.getNode(), `Execution of '${subcommand}' failed. Error: ${error.message}`);
-			}
-			throw new NodeOperationError(this.getNode(), `An unknown error occurred during execution of '${subcommand}'.`);
+			const message = getErrorMessage(error);
+			throw new NodeOperationError(this.getNode(), `Execution of '${subcommand}' failed. Error: ${message}`);
 		}
 	}
 }
