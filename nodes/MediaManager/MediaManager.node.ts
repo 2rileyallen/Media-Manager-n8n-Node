@@ -86,12 +86,10 @@ export class MediaManager implements INodeType {
 		inputs: [NodeConnectionType.Main],
 		outputs: [NodeConnectionType.Main],
 		properties: [
-			// FIX: The refresh button has been removed for a cleaner UI.
 			{
 				displayName: 'Subcommand',
 				name: 'subcommand',
 				type: 'options',
-				// The loadOptionsMethod will now run automatically when the node panel is opened.
 				typeOptions: {
 					loadOptionsMethod: 'getSubcommands',
 				},
@@ -119,11 +117,9 @@ export class MediaManager implements INodeType {
 
 	methods = {
 		loadOptions: {
-			// This method now runs automatically when the node UI is opened.
 			async getSubcommands(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 				const returnOptions: INodePropertyOptions[] = [];
 				try {
-					// It runs the update command to ensure the list is fresh.
 					await executeManagerCommand.call(this, 'update');
 					const subcommands = await executeManagerCommand.call(this, 'list');
 					for (const name in subcommands) {
@@ -146,13 +142,29 @@ export class MediaManager implements INodeType {
 					const subcommands = await executeManagerCommand.call(this, 'list');
 					const pythonSchema = subcommands[subcommandName]?.input_schema || [];
 
-					const n8nSchema: ResourceMapperField[] = pythonSchema.map((field: any) => ({
-						id: field.name,
-						displayName: field.displayName,
-						required: field.required || false,
-						display: true,
-						type: field.type || 'string',
-					}));
+					const n8nSchema: ResourceMapperField[] = pythonSchema.map((field: any) => {
+						const n8nField: Omit<ResourceMapperField, 'default'> & { default?: any; options?: any } = {
+							id: field.name,
+							displayName: field.displayName,
+							required: field.required || false,
+							display: true,
+							type: field.type || 'string',
+							defaultMatch: false, // FIX: Added required 'defaultMatch' property
+						};
+
+						// If the field is an 'options' type, pass the options array.
+						if (field.type === 'options' && Array.isArray(field.options)) {
+							n8nField.options = field.options;
+						}
+
+						// FIX: The 'default' property is not part of the base ResourceMapperField type,
+						// but it is used by the UI. We handle it carefully here.
+						if (field.default !== undefined) {
+							n8nField.default = field.default;
+						}
+
+						return n8nField as ResourceMapperField;
+					});
 					
 					return { fields: n8nSchema };
 				} catch (error) {
