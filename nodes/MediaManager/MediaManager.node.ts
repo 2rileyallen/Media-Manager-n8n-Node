@@ -47,9 +47,12 @@ async function executeManagerCommand(
 	} catch (error) {
 		console.error(`Error executing command: ${fullCommand}`, error);
 		// FIX: Safely access properties on the 'unknown' error object.
-		// This checks for the properties before trying to use them.
-		const errorMessage = (error as any)?.stderr || (error as any)?.message || 'Unknown execution error';
-		throw new NodeOperationError(this.getNode(), `Failed to execute manager.py command: ${command}. Raw Error: ${errorMessage}`);
+		if (error instanceof Error) {
+			const execError = error as any; // Cast to access potential 'stderr' property
+			const errorMessage = execError.stderr || execError.message || 'Unknown execution error';
+			throw new NodeOperationError(this.getNode(), `Failed to execute manager.py command: ${command}. Raw Error: ${errorMessage}`);
+		}
+		throw new NodeOperationError(this.getNode(), `An unknown error occurred while executing the manager script.`);
 	}
 }
 
@@ -148,8 +151,11 @@ export class MediaManager implements INodeType {
 					}
 				} catch (error) {
 					// FIX: Safely access the error message.
-					const message = (error instanceof Error) ? error.message : String(error);
-					console.error("Failed to load subcommands:", message);
+					if (error instanceof Error) {
+						console.error("Failed to load subcommands:", error.message);
+					} else {
+						console.error("An unknown error occurred while loading subcommands.");
+					}
 				}
 				return returnOptions;
 			},
@@ -166,8 +172,11 @@ export class MediaManager implements INodeType {
 					return schema;
 				} catch(error) {
 					// FIX: Safely access the error message.
-					const message = (error instanceof Error) ? error.message : String(error);
-					console.error(`Failed to load parameters for ${subcommandName}:`, message);
+					if (error instanceof Error) {
+						console.error(`Failed to load parameters for ${subcommandName}:`, error.message);
+					} else {
+						console.error(`An unknown error occurred while loading parameters for ${subcommandName}.`);
+					}
 					return [];
 				}
 			} as any,
@@ -198,8 +207,10 @@ export class MediaManager implements INodeType {
 			return [returnData];
 		} catch (error) {
 			// FIX: Safely access the error message.
-			const message = (error instanceof Error) ? error.message : String(error);
-			throw new NodeOperationError(this.getNode(), `Execution of '${subcommand}' failed. Error: ${message}`);
+			if (error instanceof Error) {
+				throw new NodeOperationError(this.getNode(), `Execution of '${subcommand}' failed. Error: ${error.message}`);
+			}
+			throw new NodeOperationError(this.getNode(), `An unknown error occurred during execution of '${subcommand}'.`);
 		}
 	}
 }
