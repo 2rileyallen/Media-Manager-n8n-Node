@@ -5,7 +5,7 @@
   "license": "MIT",
   "main": "dist/nodes/MediaManager/MediaManager.node.js",
   "scripts": {
-    "build": "esbuild ./nodes/MediaManager/MediaManager.node.ts --bundle --platform=node --outfile=dist/nodes/MediaManager/MediaManager.node.js --external:n8n-workflow",
+    "build": "esbuild ./nodes/MediaManager/MediaManager.node.ts --bundle --platform=node --outfile=dist/nodes/MediaManager/MediaManager.node.js --external:n8n-workflow --external:n8n-core",
     "dev": "npm run build -- --watch"
   },
   "files": [
