@@ -117,6 +117,14 @@ export class MediaManager implements INodeType {
 		inputs: [NodeConnectionType.Main],
 		outputs: [NodeConnectionType.Main],
 		properties: [
+			// FIX: Removed the faulty displayOptions to resolve the TypeScript error.
+			// This notice will now always be visible.
+			{
+				displayName: 'Hover over parameter fields below to see their description and requirement status.',
+				name: 'descriptionNotice',
+				type: 'notice',
+				default: '',
+			},
 			{
 				displayName: 'Subcommand',
 				name: 'subcommand',
@@ -174,13 +182,14 @@ export class MediaManager implements INodeType {
 					const pythonSchema = subcommands[subcommandName]?.input_schema || [];
 
 					const n8nSchema: ResourceMapperField[] = pythonSchema.map((field: any) => {
-						const n8nField: Omit<ResourceMapperField, 'default'> & { default?: any; options?: any } = {
+						const n8nField: Omit<ResourceMapperField, 'default'> & { default?: any; options?: any, description?: string } = {
 							id: field.name,
 							displayName: field.displayName,
 							required: field.required || false,
 							display: true,
 							type: field.type || 'string',
 							defaultMatch: false,
+							description: field.description || '', // Pass the description for hover text
 						};
 
 						if (field.type === 'options' && Array.isArray(field.options)) {
@@ -203,7 +212,6 @@ export class MediaManager implements INodeType {
 		},
 	};
 
-	// FIX: The execute method now loops through all incoming items.
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
@@ -216,7 +224,6 @@ export class MediaManager implements INodeType {
 
 				const result = await executeManagerCommand.call(this, subcommand, inputData);
 				
-				// Merge the result with the original item's JSON to preserve its data
 				const newItem: INodeExecutionData = {
 					json: { ...items[itemIndex].json, ...result },
 					pairedItem: { item: itemIndex },
