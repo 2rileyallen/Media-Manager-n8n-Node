@@ -7,7 +7,7 @@ import {
 	NodeOperationError,
 	INodePropertyOptions,
 	INodeProperties,
-	NodeConnectionType, // FIX: Import the explicit type for connections.
+	NodeConnectionType,
 } from 'n8n-workflow';
 
 import { promisify } from 'util';
@@ -46,8 +46,10 @@ async function executeManagerCommand(
 		return JSON.parse(stdout);
 	} catch (error) {
 		console.error(`Error executing command: ${fullCommand}`, error);
-		// The actual error message from the script is often in stderr, which is more useful.
-		throw new NodeOperationError(this.getNode(), `Failed to execute manager.py command: ${command}. Raw Error: ${error.stderr || error.message}`);
+		// FIX: Safely access properties on the 'unknown' error object.
+		// This checks for the properties before trying to use them.
+		const errorMessage = (error as any)?.stderr || (error as any)?.message || 'Unknown execution error';
+		throw new NodeOperationError(this.getNode(), `Failed to execute manager.py command: ${command}. Raw Error: ${errorMessage}`);
 	}
 }
 
@@ -63,7 +65,6 @@ export class MediaManager implements INodeType {
 		defaults: {
 			name: 'Media Manager',
 		},
-		// FIX: Use the explicit NodeConnectionType enum to satisfy strict n8n types.
 		inputs: [NodeConnectionType.Main],
 		outputs: [NodeConnectionType.Main],
 		properties: [
@@ -103,7 +104,6 @@ export class MediaManager implements INodeType {
 				type: 'options',
 				typeOptions: {
 					loadOptionsMethod: 'getSubcommands',
-					// This makes the dropdown reload when the refresh button is used
 					loadOptionsDependsOn: ['refreshButton'],
 				},
 				default: '',
@@ -125,7 +125,6 @@ export class MediaManager implements INodeType {
 						type: 'json',
 						typeOptions: {
 							loadOptionsMethod: 'getSubcommandParameters',
-							// This makes the parameters reload when a new subcommand is chosen
 							loadOptionsDependsOn: ['subcommand'],
 						},
 						default: '{}',
@@ -138,9 +137,6 @@ export class MediaManager implements INodeType {
 
 	methods = {
 		loadOptions: {
-			/**
-			 * Fetches the list of available subcommands from manager.py
-			 */
 			async getSubcommands(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 				const returnOptions: INodePropertyOptions[] = [];
 				try {
@@ -151,18 +147,13 @@ export class MediaManager implements INodeType {
 						}
 					}
 				} catch (error) {
-					console.error("Failed to load subcommands:", error.message);
+					// FIX: Safely access the error message.
+					const message = (error instanceof Error) ? error.message : String(error);
+					console.error("Failed to load subcommands:", message);
 				}
 				return returnOptions;
 			},
 
-			/**
-			 * Fetches the INPUT_SCHEMA for a selected subcommand and transforms it
-			 * into n8n UI fields.
-			 */
-			// The return type is set to `any` as a targeted fix for this specific
-			// function. This is necessary because it returns INodeProperties[] for a 'json'
-			// field, which differs from the general index signature for loadOptions methods.
 			getSubcommandParameters: async function(this: ILoadOptionsFunctions): Promise<INodeProperties[]> {
 				const subcommandName = this.getCurrentNodeParameter('subcommand') as string;
 				if (!subcommandName) {
@@ -174,10 +165,12 @@ export class MediaManager implements INodeType {
 					const schema = subcommands[subcommandName]?.input_schema || [];
 					return schema;
 				} catch(error) {
-					console.error(`Failed to load parameters for ${subcommandName}:`, error.message);
+					// FIX: Safely access the error message.
+					const message = (error instanceof Error) ? error.message : String(error);
+					console.error(`Failed to load parameters for ${subcommandName}:`, message);
 					return [];
 				}
-			} as any, // The targeted 'any' cast to resolve the type conflict.
+			} as any,
 		},
 	};
 
@@ -204,7 +197,9 @@ export class MediaManager implements INodeType {
 			const returnData = this.helpers.returnJsonArray(Array.isArray(result) ? result : [result]);
 			return [returnData];
 		} catch (error) {
-			throw new NodeOperationError(this.getNode(), `Execution of '${subcommand}' failed. Error: ${error.message}`);
+			// FIX: Safely access the error message.
+			const message = (error instanceof Error) ? error.message : String(error);
+			throw new NodeOperationError(this.getNode(), `Execution of '${subcommand}' failed. Error: ${message}`);
 		}
 	}
 }
