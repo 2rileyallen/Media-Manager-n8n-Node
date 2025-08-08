@@ -2,9 +2,10 @@
   "name": "n8n-nodes-media-manager",
   "version": "1.0.0",
   "description": "A custom n8n node to run media automation subcommands.",
+  "type": "module",
   "main": "index.js",
   "scripts": {
-    "build": "tsc && gulp build:icons",
+    "build": "tsc",
     "dev": "tsc --watch",
     "format": "prettier --write nodes credentials",
     "lint": "eslint nodes credentials --ext .js,.ts",
