@@ -4,7 +4,7 @@ Media Manager is a self-managing, modular framework designed to run Python scrip
 
 The core principle is modularity. By simply adding a new Python file to the subcommands/ directory, the framework automatically handles:
 
-Isolated Environments: Creates a dedicated virtual environment for each subcommand with dependencies, preventing conflicts.
+Isolated Environments: Creates a dedicated virtual environment for each subcommand, preventing dependency conflicts.
 
 Automatic Dependency Installation: Reads a REQUIRES list in each subcommand and installs the specified packages.
 
@@ -15,18 +15,17 @@ Automated Cleanup: Removes orphaned environments and tool folders when a subcomm
 2. Project Structure
 The entire project is organized to be self-contained and easy to understand.
 
-media_manager/
-├── venv/                   # Main virtual environment for the manager itself
-├── subcommands/            # <<< All subcommand .py files go here.
+Media-Manager-n8n-Node/
+├── venv/                 # Main virtual environment for the manager itself
+├── subcommands/          # <<< All subcommand .py files go here.
 │   └── example_tool.py
-├── subcommands_envs/       # Auto-managed: Isolated Python environments.
+├── subcommands_envs/     # Auto-managed: Isolated Python environments.
 │   └── example_tool/
-├── subcommands_tools/      # Auto-managed: Persistent storage for tools.
+├── subcommands_tools/    # Auto-managed: Persistent storage for tools.
 │   └── example_tool/
-├── manager.py              # The central orchestrator script. Do not modify.
-├── setup.bat               # One-time setup script for Windows.
-├── setup.sh                # One-time setup script for Linux/macOS.
-└── README.md               # This documentation.
+├── manager.py            # The central orchestrator script. Do not modify.
+├── setup.bat             # One-time setup script for Windows.
+└── README.md             # This documentation.
 
 3. Development Workflow
 Follow these steps to set up the project and develop new subcommands.
@@ -34,28 +33,16 @@ Follow these steps to set up the project and develop new subcommands.
 Step 1: Initial Environment Setup
 This only needs to be done once to prepare the manager.py script's main environment.
 
-On Windows:
+On Windows: setup.bat
 
-setup.bat
+On Linux/macOS: chmod +x setup.sh && ./setup.sh
 
-On Linux/macOS:
+Step 2: Use the Manager CLI
+The manager.py script is your primary interface for testing and development. You must first activate the main virtual environment.
 
-chmod +x setup.sh
-./setup.sh
+On Windows: call venv\Scripts\activate
 
-Step 2: Activate the Environment
-Before running any commands, you must activate the main virtual environment.
-
-On Windows:
-
-call venv\Scripts\activate
-
-On Linux/macOS:
-
-source venv/bin/activate
-
-Step 3: Use the Manager CLI
-The manager.py script is your primary interface for testing and development.
+On Linux/macOS: source venv/bin/activate
 
 Command
 
@@ -67,20 +54,20 @@ Shows all available subcommands and their status.
 
 python manager.py update
 
-Scans for new subcommands, installs their dependencies, and cleans up any files left behind by deleted ones. Run this after adding or removing a subcommand.
+Scans for new subcommands, installs their dependencies, and cleans up old files.
 
-python manager.py <name> '[JSON_STRING]'
+echo '{"json":"data"}' | python manager.py <name>
 
-Executes a subcommand. The input can be a JSON string, a path to a .json file, or a direct file path. If no input is needed, this argument can be omitted.
+Executes a subcommand by piping JSON data to it. This is the recommended testing method.
 
 4. Subcommand Authoring Guide (The Contract)
 To create a new tool, create a new .py file in the subcommands/ directory. This file must adhere to the following contract to be recognized and run by the manager.
 
 The Most Important Rule
-CRITICAL: Do not import packages from the REQUIRES list at the top of your file. Instead, import them inside the functions that need them. This allows the manager to read your REQUIRES list before the import is attempted.
+CRITICAL: Do not import packages from the REQUIRES list at the top-level of your file. Instead, import them inside the functions that need them. This allows the manager to read your REQUIRES list before the import is attempted.
 
 Subcommand Template
-This is the required boilerplate for every subcommand file. It demonstrates the correct import practice.
+This is the required boilerplate for every subcommand file.
 
 import sys
 import os
@@ -105,9 +92,20 @@ INPUT_SCHEMA = [
         "required": True,
         "description": "The full path to the audio file to be processed."
     },
+    {
+        "name": "format",
+        "displayName": "Output Format",
+        "type": "options",
+        "options": [
+            { "name": "Seconds", "value": "seconds" },
+            { "name": "Minutes", "value": "minutes" }
+        ],
+        "default": "seconds",
+        "description": "The desired format for the output duration."
+    }
 ]
 
-# --- Helper Functions ---
+# --- Helper Functions (Optional) ---
 
 def some_helper_function(file_path):
     # CORRECT: Import the required module inside the function that uses it.
@@ -131,9 +129,6 @@ def main(input_data, tool_path):
         input_file = input_data["input_file"]
 
         # --- 2. Your Logic Here ---
-        # Example: Construct a path for an output file within the tool directory.
-        output_file_path = os.path.join(tool_path, "processed_audio.mp3")
-        
         length_in_ms = some_helper_function(input_file)
 
         # --- 3. Return Clean JSON Output ---
@@ -154,18 +149,20 @@ def main(input_data, tool_path):
 # --- Boilerplate for Direct Execution ---
 # This allows the script to be run and receive input from the manager.
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        input_json = sys.argv[1]
+    # CORRECT: Read from standard input (stdin) instead of command-line arguments.
+    stdin_content = sys.stdin.read()
+    
+    if stdin_content:
         try:
-            data = json.loads(input_json)
-            tool_folder = os.environ.get("SUBCOMMAND_TOOL_PATH")
-            if not tool_folder:
-                raise RuntimeError("Tool path environment variable not set.")
+            data = json.loads(stdin_content)
+            # The manager provides the tool path via an environment variable.
+            tool_folder = os.environ.get("SUBCOMMAND_TOOL_PATH", "")
             main(data, tool_folder)
         except json.JSONDecodeError:
-            print(json.dumps({"status": "error", "message": "Invalid JSON input"}), file=sys.stderr)
+            print(json.dumps({"status": "error", "message": "Invalid JSON input from stdin"}), file=sys.stderr)
     else:
-        print(json.dumps({"status": "error", "message": "No JSON input provided"}), file=sys.stderr)
+        # Handle case where no input is provided.
+        print(json.dumps({"status": "error", "message": "No JSON input provided to stdin"}), file=sys.stderr)
 
 
 5. AI Development Guide
@@ -189,4 +186,4 @@ Produce JSON Output: Ensure the only output to stdout is a single, clean JSON st
 
 Handle Errors: Use try...except blocks to catch potential errors. Print all error messages as JSON to stderr.
 
-Final Check: Review the full script to ensure it matches the template and fulfills all requirements.
+Final Check: Ensure the script uses the correct boilerplate to read from sys.stdin, as shown in the template above.
