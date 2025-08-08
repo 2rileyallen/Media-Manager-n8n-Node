@@ -43,18 +43,10 @@ async function executeManagerCommand(
 	command: string,
 ): Promise<any> {
 	// --- Fully Automatic Path Detection ---
-	// Get the directory of the currently executing file (e.g., .../dist/nodes/MediaManager)
 	const currentNodeDir = __dirname;
-
-	// The root of the n8n node project is 3 levels up
 	const nodeProjectRoot = path.join(currentNodeDir, '..', '..', '..');
-
-	// The python project is a sibling folder to the n8n node project
 	const projectPath = path.join(nodeProjectRoot, '..', 'media_manager');
-
 	const managerPath = path.join(projectPath, 'manager.py');
-
-	// Determine the correct path to the Python executable within the main `venv`
 	const pythonExecutable = process.platform === 'win32' ? 'python.exe' : 'python';
 	const venvSubfolder = process.platform === 'win32' ? 'Scripts' : 'bin';
 	const pythonPath = path.join(projectPath, 'venv', venvSubfolder, pythonExecutable);
@@ -92,12 +84,13 @@ export class MediaManager implements INodeType {
 			// --- All path inputs have been removed for a zero-config experience ---
 
 			// --- Refresh Button ---
+			// This is now a boolean (toggle switch) that acts as a refresh trigger.
 			{
 				displayName: 'Refresh Subcommand List',
 				name: 'refreshButton',
-				type: 'notice',
-				default: '',
-				description: 'Click the refresh button below to scan the subcommands folder for any new or deleted tools.',
+				type: 'boolean',
+				default: false,
+				description: 'Toggle this switch to re-scan the subcommands folder for any new or deleted tools.',
 			},
 
 			// --- Subcommand Selection Dropdown ---
@@ -107,7 +100,7 @@ export class MediaManager implements INodeType {
 				type: 'options',
 				typeOptions: {
 					loadOptionsMethod: 'getSubcommands',
-					loadOptionsDependsOn: ['refreshButton'], // No longer depends on any path input
+					loadOptionsDependsOn: ['refreshButton'],
 				},
 				default: '',
 				required: true,
@@ -115,31 +108,24 @@ export class MediaManager implements INodeType {
 			},
 
 			// --- Dynamic Parameter Section ---
+			// This collection will now be dynamically populated with the correct UI fields.
 			{
 				displayName: 'Parameters',
 				name: 'parameters',
-				type: 'collection',
 				placeholder: 'Add Parameter',
+				type: 'collection',
 				default: {},
-				options: [
-					{
-						displayName: 'Input Data',
-						name: 'inputData',
-						type: 'json',
-						typeOptions: {
-							loadOptionsMethod: 'getSubcommandParameters',
-							loadOptionsDependsOn: ['subcommand'],
-						},
-						default: '{}',
-						description: 'Input data for the selected subcommand.',
-					},
-				],
+				typeOptions: {
+					loadOptionsMethod: 'getSubcommandParameters',
+					loadOptionsDependsOn: ['subcommand'],
+				},
 			},
 		],
 	};
 
 	methods = {
 		loadOptions: {
+			// This method is triggered by the 'refreshButton' toggle.
 			async getSubcommands(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 				const returnOptions: INodePropertyOptions[] = [];
 				try {
@@ -157,6 +143,8 @@ export class MediaManager implements INodeType {
 				return returnOptions;
 			},
 
+			// This method is triggered when a 'subcommand' is selected.
+			// It returns the UI schema to dynamically build the 'Parameters' section.
 			getSubcommandParameters: async function(this: ILoadOptionsFunctions): Promise<INodeProperties[]> {
 				const subcommandName = this.getCurrentNodeParameter('subcommand') as string;
 				if (!subcommandName) {
@@ -166,28 +154,24 @@ export class MediaManager implements INodeType {
 				try {
 					const subcommands = await executeManagerCommand.call(this, 'list');
 					const schema = subcommands[subcommandName]?.input_schema || [];
+					// The schema from Python is already in the correct format for n8n properties.
 					return schema;
 				} catch(error) {
 					console.error(`Failed to load parameters for ${subcommandName}:`, getErrorMessage(error));
 					return [];
 				}
-			} as any,
+			} as any, // FIX: Cast to 'any' to bypass a strict TypeScript type check. This is a known pattern for dynamically generating UI properties in n8n.
 		},
 	};
 
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const subcommand = this.getNodeParameter('subcommand', 0) as string;
-		const parameters = this.getNodeParameter('parameters', 0) as { inputData?: string };
+		// The parameters are now a flat object, not nested under 'inputData'.
+		const parameters = this.getNodeParameter('parameters', 0) as object;
 
-		let inputJsonString = '{}';
-		if (parameters.inputData) {
-			try {
-				inputJsonString = parameters.inputData;
-			} catch (error) {
-				throw new NodeOperationError(this.getNode(), 'Input Data is not valid JSON.');
-			}
-		}
+		// Convert the parameters object to a JSON string for the CLI.
+		const inputJsonString = JSON.stringify(parameters);
 
 		// Correctly escape the JSON string for the command line
 		const escapedInput = `'${inputJsonString.replace(/'/g, "'\\''")}'`;
