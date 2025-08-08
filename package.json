@@ -1,0 +1,35 @@
+{
+  "name": "n8n-nodes-media-manager",
+  "version": "1.0.0",
+  "description": "A custom n8n node to run media automation subcommands.",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc && gulp build:icons",
+    "dev": "tsc --watch",
+    "format": "prettier --write nodes credentials",
+    "lint": "eslint nodes credentials --ext .js,.ts",
+    "lint:fix": "eslint nodes credentials --ext .js,.ts --fix",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [],
+    "nodes": [
+      "dist/nodes/MediaManager/MediaManager.node.js"
+    ]
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.6",
+    "@types/request-promise-native": "~1.0.15",
+    "@typescript-eslint/parser": "~5.45",
+    "eslint-plugin-n8n-nodes-base": "^1.11.0",
+    "gulp": "^4.0.2",
+    "n8n-core": "*",
+    "n8n-workflow": "*",
+    "prettier": "^2.7.1",
+    "typescript": "~4.8.4"
+  }
+}
