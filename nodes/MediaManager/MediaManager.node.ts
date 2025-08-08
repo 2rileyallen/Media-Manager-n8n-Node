@@ -71,6 +71,12 @@ async function executeManagerCommand(
 				return reject(new NodeOperationError(this.getNode(), `Execution of '${command}' failed. Error: ${stderr}`));
 			}
 			try {
+				// Handle cases where the script might not return JSON (e.g., only prints to stderr)
+				if (stdout.trim() === '') {
+					// If stdout is empty but the exit code was 0, resolve with an empty object.
+					// This can happen if a script's only output is logging to stderr.
+					return resolve({});
+				}
 				resolve(JSON.parse(stdout));
 			} catch (e) {
 				reject(new NodeOperationError(this.getNode(), `Python script did not return valid JSON for '${command}'. Output: ${stdout}`));
@@ -111,7 +117,7 @@ export class MediaManager implements INodeType {
 				name: 'processingMode',
 				type: 'options',
 				typeOptions: { loadOptionsMethod: 'getProcessingModes' },
-				default: 'single', // Default to 'single'
+				default: 'single', // Default to 'single' mode
 				description: 'Choose how to process data. This appears only if the subcommand supports multiple modes.',
 				// This field is now automatically hidden by n8n if getProcessingModes returns an empty array.
 			},
@@ -179,8 +185,8 @@ export class MediaManager implements INodeType {
 
 					// Check if the subcommand uses modes.
 					if (subcommandData.modes) {
-						// Use the selected mode, or default to the first available mode.
-						const effectiveMode = processingMode || Object.keys(subcommandData.modes)[0];
+						// Use the selected mode, or default to the first available mode if the selection is invalid.
+						const effectiveMode = subcommandData.modes[processingMode] ? processingMode : Object.keys(subcommandData.modes)[0];
 						pythonSchema = subcommandData.modes[effectiveMode]?.input_schema || [];
 					} else {
 						// Fallback to the top-level schema for simple nodes.
@@ -212,11 +218,12 @@ export class MediaManager implements INodeType {
 		const returnData: INodeExecutionData[] = [];
 		const subcommand = this.getNodeParameter('subcommand', 0) as string;
 		
-		// This logic needs to be inside the loop for single mode, but outside for batch mode.
-		// First, determine the mode.
+		// To determine the mode, we must fetch the subcommand's metadata.
 		const subcommands = await executeManagerCommand.call(this, 'list');
 		const subcommandData = subcommands[subcommand];
 		const processingMode = this.getNodeParameter('processingMode', 0) as string;
+		
+		// A subcommand is in "batch" mode ONLY if it defines modes AND the user has selected 'batch'.
 		const isBatchMode = subcommandData && subcommandData.modes && processingMode === 'batch';
 
 		if (isBatchMode) {
