@@ -6,7 +6,8 @@ import {
 	INodeExecutionData,
 	NodeOperationError,
 	INodePropertyOptions,
-	ResourceMapperField, // Corrected: IResourceMapper removed
+	ResourceMapperField,
+	ResourceMapperFields, // FIX: Import the correct wrapper type
 	NodeConnectionType,
 } from 'n8n-workflow';
 
@@ -46,8 +47,12 @@ async function executeManagerCommand(
 		const { stdout, stderr } = await execAsync(fullCommand, { encoding: 'utf-8' });
 		if (stderr) console.error(`Manager stderr: ${stderr}`);
 		return JSON.parse(stdout);
-	} catch (error) {
+	} catch (error: any) {
 		console.error(`Error executing command: ${fullCommand}`, error);
+		// Provide a more helpful error message if the path is not found
+		if (error.code === 'ENOENT' || (error.stderr && error.stderr.includes('cannot find the path'))) {
+			throw new NodeOperationError(this.getNode(), `Could not find the Python script. Please ensure the 'media_manager' project is in the correct location and its setup script has been run. Path tried: ${fullCommand}`);
+		}
 		throw new NodeOperationError(this.getNode(), `Failed to execute manager.py command: ${command}. Raw Error: ${getErrorMessage(error)}`);
 	}
 }
@@ -123,10 +128,11 @@ export class MediaManager implements INodeType {
 				return returnOptions;
 			},
 		},
-		resourceMapper: {
-			async getSubcommandSchema(this: ILoadOptionsFunctions): Promise<ResourceMapperField[]> {
+		resourceMapping: {
+			// FIX: The return type is now Promise<ResourceMapperFields>
+			async getSubcommandSchema(this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
 				const subcommandName = this.getCurrentNodeParameter('subcommand') as string;
-				if (!subcommandName) return [];
+				if (!subcommandName) return { fields: [] };
 
 				try {
 					const subcommands = await executeManagerCommand.call(this, 'list');
@@ -139,14 +145,15 @@ export class MediaManager implements INodeType {
 						display: true,
 						type: field.type || 'string',
 					}));
-
-					return n8nSchema;
+					
+					// FIX: Return the array inside a 'fields' object
+					return { fields: n8nSchema };
 				} catch (error) {
 					console.error(`Failed to load schema for ${subcommandName}:`, getErrorMessage(error));
-					return [];
+					return { fields: [] };
 				}
 			},
-		}, // Corrected: 'as IResourceMapper' cast removed
+		},
 	};
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
