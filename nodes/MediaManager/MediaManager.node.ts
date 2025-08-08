@@ -7,7 +7,7 @@ import {
 	NodeOperationError,
 	INodePropertyOptions,
 	ResourceMapperField,
-	ResourceMapperFields, // FIX: Import the correct wrapper type
+	ResourceMapperFields,
 	NodeConnectionType,
 } from 'n8n-workflow';
 
@@ -34,9 +34,13 @@ async function executeManagerCommand(
 	this: IExecuteFunctions | ILoadOptionsFunctions,
 	command: string,
 ): Promise<any> {
+	// --- Fully Automatic Path Detection ---
 	const currentNodeDir = __dirname;
 	const nodeProjectRoot = path.join(currentNodeDir, '..', '..', '..');
-	const projectPath = path.join(nodeProjectRoot, '..', 'media_manager');
+
+	// The python project is the node project itself, not a sibling.
+	const projectPath = nodeProjectRoot;
+
 	const managerPath = path.join(projectPath, 'manager.py');
 	const pythonExecutable = process.platform === 'win32' ? 'python.exe' : 'python';
 	const venvSubfolder = process.platform === 'win32' ? 'Scripts' : 'bin';
@@ -49,9 +53,8 @@ async function executeManagerCommand(
 		return JSON.parse(stdout);
 	} catch (error: any) {
 		console.error(`Error executing command: ${fullCommand}`, error);
-		// Provide a more helpful error message if the path is not found
 		if (error.code === 'ENOENT' || (error.stderr && error.stderr.includes('cannot find the path'))) {
-			throw new NodeOperationError(this.getNode(), `Could not find the Python script. Please ensure the 'media_manager' project is in the correct location and its setup script has been run. Path tried: ${fullCommand}`);
+			throw new NodeOperationError(this.getNode(), `Could not find the Python script. Please ensure the project's setup script has been run. Path tried: ${fullCommand}`);
 		}
 		throw new NodeOperationError(this.getNode(), `Failed to execute manager.py command: ${command}. Raw Error: ${getErrorMessage(error)}`);
 	}
@@ -73,20 +76,14 @@ export class MediaManager implements INodeType {
 		inputs: [NodeConnectionType.Main],
 		outputs: [NodeConnectionType.Main],
 		properties: [
-			{
-				displayName: 'Refresh Subcommand List',
-				name: 'refreshButton',
-				type: 'boolean',
-				default: false,
-				description: 'Toggle this switch to re-scan the subcommands folder for any new or deleted tools.',
-			},
+			// FIX: The refresh button has been removed for a cleaner UI.
 			{
 				displayName: 'Subcommand',
 				name: 'subcommand',
 				type: 'options',
+				// The loadOptionsMethod will now run automatically when the node panel is opened.
 				typeOptions: {
 					loadOptionsMethod: 'getSubcommands',
-					loadOptionsDependsOn: ['refreshButton'],
 				},
 				default: '',
 				required: true,
@@ -112,9 +109,11 @@ export class MediaManager implements INodeType {
 
 	methods = {
 		loadOptions: {
+			// This method now runs automatically when the node UI is opened.
 			async getSubcommands(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 				const returnOptions: INodePropertyOptions[] = [];
 				try {
+					// It runs the update command to ensure the list is fresh.
 					await executeManagerCommand.call(this, 'update');
 					const subcommands = await executeManagerCommand.call(this, 'list');
 					for (const name in subcommands) {
@@ -129,7 +128,6 @@ export class MediaManager implements INodeType {
 			},
 		},
 		resourceMapping: {
-			// FIX: The return type is now Promise<ResourceMapperFields>
 			async getSubcommandSchema(this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
 				const subcommandName = this.getCurrentNodeParameter('subcommand') as string;
 				if (!subcommandName) return { fields: [] };
@@ -146,7 +144,6 @@ export class MediaManager implements INodeType {
 						type: field.type || 'string',
 					}));
 					
-					// FIX: Return the array inside a 'fields' object
 					return { fields: n8nSchema };
 				} catch (error) {
 					console.error(`Failed to load schema for ${subcommandName}:`, getErrorMessage(error));
