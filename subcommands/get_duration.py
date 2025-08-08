@@ -119,15 +119,17 @@ def main(input_data, tool_path):
 # --- Boilerplate for Direct Execution ---
 # This allows the script to be run and receive input from the manager.
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        input_json = sys.argv[1]
+    # FIX: Read from standard input (stdin) instead of command-line arguments (argv)
+    stdin_content = sys.stdin.read()
+    
+    if stdin_content:
         try:
-            data = json.loads(input_json)
+            data = json.loads(stdin_content)
             # The manager provides the tool path via an environment variable.
             tool_folder = os.environ.get("SUBCOMMAND_TOOL_PATH", "")
             main(data, tool_folder)
         except json.JSONDecodeError:
-            print(json.dumps({"status": "error", "message": "Invalid JSON input"}), file=sys.stderr)
+            print(json.dumps({"status": "error", "message": "Invalid JSON input from stdin"}), file=sys.stderr)
     else:
-        # Handle case where no input is provided, if necessary.
-        print(json.dumps({"status": "error", "message": "No JSON input provided"}), file=sys.stderr)
+        # Handle case where no input is provided.
+        print(json.dumps({"status": "error", "message": "No JSON input provided to stdin"}), file=sys.stderr)
