@@ -12,6 +12,7 @@ import {
 
 import { promisify } from 'util';
 import { exec } from 'child_process';
+import * as path from 'path';
 
 const execAsync = promisify(exec);
 
@@ -22,7 +23,6 @@ const execAsync = promisify(exec);
  */
 function getErrorMessage(error: unknown): string {
 	if (error instanceof Error) {
-		// The error might have a 'stderr' property if it comes from execAsync
 		const execError = error as Error & { stderr?: string };
 		return execError.stderr || execError.message;
 	}
@@ -35,36 +35,41 @@ function getErrorMessage(error: unknown): string {
 
 /**
  * Executes a command for the manager.py script and handles parsing.
+ * This function now automatically detects all required paths.
  * @param command The command to run (e.g., 'list', 'update')
  */
 async function executeManagerCommand(
 	this: IExecuteFunctions | ILoadOptionsFunctions,
 	command: string,
 ): Promise<any> {
-	// These parameters are required and are fetched from the node's UI.
-	const managerPath = this.getNodeParameter('managerPath', 0, '') as string;
-	if (!managerPath) {
-		throw new NodeOperationError(this.getNode(), 'Manager.py path is not configured. Please set it in the node settings.');
-	}
+	// --- Fully Automatic Path Detection ---
+	// Get the directory of the currently executing file (e.g., .../dist/nodes/MediaManager)
+	const currentNodeDir = __dirname;
 
-	const pythonPath = this.getNodeParameter('pythonPath', 0, '') as string;
-	if (!pythonPath) {
-		throw new NodeOperationError(this.getNode(), 'Python path is not configured. Please set it in the node settings.');
-	}
+	// The root of the n8n node project is 3 levels up
+	const nodeProjectRoot = path.join(currentNodeDir, '..', '..', '..');
 
-	const fullCommand = `${pythonPath} "${managerPath}" ${command}`;
+	// The python project is a sibling folder to the n8n node project
+	const projectPath = path.join(nodeProjectRoot, '..', 'media_manager');
+
+	const managerPath = path.join(projectPath, 'manager.py');
+
+	// Determine the correct path to the Python executable within the main `venv`
+	const pythonExecutable = process.platform === 'win32' ? 'python.exe' : 'python';
+	const venvSubfolder = process.platform === 'win32' ? 'Scripts' : 'bin';
+	const pythonPath = path.join(projectPath, 'venv', venvSubfolder, pythonExecutable);
+	// --- End of Automatic Path Detection ---
+
+	const fullCommand = `"${pythonPath}" "${managerPath}" ${command}`;
 
 	try {
 		const { stdout, stderr } = await execAsync(fullCommand, { encoding: 'utf-8' });
 		if (stderr) {
-			// Stderr is used for progress and logging, so we just log it to the console.
 			console.error(`Manager stderr: ${stderr}`);
 		}
-		// The manager.py script is now guaranteed to return JSON on stdout
 		return JSON.parse(stdout);
 	} catch (error) {
 		console.error(`Error executing command: ${fullCommand}`, error);
-		const errorMessage = getErrorMessage(error);
 		throw new NodeOperationError(this.getNode(), `Failed to execute manager.py command: ${command}. Raw Error: ${getErrorMessage(error)}`);
 	}
 }
@@ -84,25 +89,7 @@ export class MediaManager implements INodeType {
 		inputs: [NodeConnectionType.Main],
 		outputs: [NodeConnectionType.Main],
 		properties: [
-			// --- Static Configuration ---
-			{
-				displayName: 'Manager.py Path',
-				name: 'managerPath',
-				type: 'string',
-				default: '',
-				required: true,
-				placeholder: '/path/to/your/media_manager/manager.py',
-				description: 'The absolute path to the manager.py script.',
-			},
-			{
-				displayName: 'Python Path',
-				name: 'pythonPath',
-				type: 'string',
-				default: '',
-				required: true,
-				description: 'The path to the Python executable in the main venv. Use an absolute path for reliability in n8n.',
-				placeholder: '/path/to/your/media_manager/venv/bin/python',
-			},
+			// --- All path inputs have been removed for a zero-config experience ---
 
 			// --- Refresh Button ---
 			{
@@ -120,7 +107,7 @@ export class MediaManager implements INodeType {
 				type: 'options',
 				typeOptions: {
 					loadOptionsMethod: 'getSubcommands',
-					loadOptionsDependsOn: ['refreshButton'],
+					loadOptionsDependsOn: ['refreshButton'], // No longer depends on any path input
 				},
 				default: '',
 				required: true,
@@ -156,6 +143,8 @@ export class MediaManager implements INodeType {
 			async getSubcommands(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 				const returnOptions: INodePropertyOptions[] = [];
 				try {
+					// The 'update' command ensures all environments are set up before listing.
+					await executeManagerCommand.call(this, 'update');
 					const subcommands = await executeManagerCommand.call(this, 'list');
 					for (const name in subcommands) {
 						if (!subcommands[name].error) {
@@ -163,7 +152,6 @@ export class MediaManager implements INodeType {
 						}
 					}
 				} catch (error) {
-					const message = getErrorMessage(error);
 					console.error("Failed to load subcommands:", getErrorMessage(error));
 				}
 				return returnOptions;
@@ -180,7 +168,6 @@ export class MediaManager implements INodeType {
 					const schema = subcommands[subcommandName]?.input_schema || [];
 					return schema;
 				} catch(error) {
-					const message = getErrorMessage(error);
 					console.error(`Failed to load parameters for ${subcommandName}:`, getErrorMessage(error));
 					return [];
 				}
@@ -196,14 +183,14 @@ export class MediaManager implements INodeType {
 		let inputJsonString = '{}';
 		if (parameters.inputData) {
 			try {
-				const parsedInput = JSON.parse(parameters.inputData);
-				inputJsonString = JSON.stringify(parsedInput);
+				inputJsonString = parameters.inputData;
 			} catch (error) {
 				throw new NodeOperationError(this.getNode(), 'Input Data is not valid JSON.');
 			}
 		}
 
-		const escapedInput = `'${inputJsonString}'`;
+		// Correctly escape the JSON string for the command line
+		const escapedInput = `'${inputJsonString.replace(/'/g, "'\\''")}'`;
 		const command = `${subcommand} ${escapedInput}`;
 
 		try {
@@ -211,7 +198,6 @@ export class MediaManager implements INodeType {
 			const returnData = this.helpers.returnJsonArray(Array.isArray(result) ? result : [result]);
 			return [returnData];
 		} catch (error) {
-			const message = getErrorMessage(error);
 			throw new NodeOperationError(this.getNode(), `Execution of '${subcommand}' failed. Error: ${getErrorMessage(error)}`);
 		}
 	}
