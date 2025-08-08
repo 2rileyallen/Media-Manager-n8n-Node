@@ -165,14 +165,13 @@ def run_subcommand(name, input_data):
     execution_env["SUBCOMMAND_TOOL_PATH"] = subcommand_tool_path
     
     # Prepare for execution
-    # No longer need to stringify here, as it's handled by the n8n node
     subcommand_script_path = os.path.join(SUBCOMMANDS_DIR, f"{name}.py")
     
     print(f"\n--- Running Subcommand: {name} ---", file=sys.stderr)
     try:
-        # Use spawn to handle stdin correctly
+        # FIX: Use Popen to correctly stream data to the subcommand via stdin
         process = subprocess.Popen(
-            [python_exe, subcommand_script_path],
+            [python_exe, subcommand_script_path], # The command to run
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -180,7 +179,7 @@ def run_subcommand(name, input_data):
             encoding='utf-8',
             env=execution_env
         )
-        # Write data to stdin and close it
+        # Send the JSON data and get the output
         stdout, stderr = process.communicate(input=json.dumps(input_data))
         
         # For n8n, clean JSON output must go to stdout
