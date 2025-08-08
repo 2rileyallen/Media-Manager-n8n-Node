@@ -12,7 +12,7 @@ import {
 } from 'n8n-workflow';
 
 import { promisify } from 'util';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process'; // FIX: Import 'spawn'
 import * as path from 'path';
 
 const execAsync = promisify(exec);
@@ -33,41 +33,73 @@ function getErrorMessage(error: unknown): string {
 async function executeManagerCommand(
 	this: IExecuteFunctions | ILoadOptionsFunctions,
 	command: string,
+	inputData?: object, // Optional input data for execution
 ): Promise<any> {
 	// --- Fully Automatic Path Detection ---
 	const currentNodeDir = __dirname;
 	const nodeProjectRoot = path.join(currentNodeDir, '..', '..', '..');
-
-	// The python project is the node project itself, not a sibling.
 	const projectPath = nodeProjectRoot;
-
 	const managerPath = path.join(projectPath, 'manager.py');
 	const pythonExecutable = process.platform === 'win32' ? 'python.exe' : 'python';
 	const venvSubfolder = process.platform === 'win32' ? 'Scripts' : 'bin';
 	const pythonPath = path.join(projectPath, 'venv', venvSubfolder, pythonExecutable);
-	const fullCommand = `"${pythonPath}" "${managerPath}" ${command}`;
 
-	try {
-		const { stdout, stderr } = await execAsync(fullCommand, { encoding: 'utf-8' });
-		if (stderr) console.error(`Manager stderr: ${stderr}`);
-		
-		// FIX: The 'update' command does not return JSON, so we handle it separately.
-		if (command === 'update') {
-			return {}; // Return an empty object to signify success without data.
+	// For simple commands like 'list' and 'update', we can still use exec.
+	if (!inputData) {
+		const fullCommand = `"${pythonPath}" "${managerPath}" ${command}`;
+		try {
+			const { stdout, stderr } = await execAsync(fullCommand, { encoding: 'utf-8' });
+			if (stderr) console.error(`Manager stderr: ${stderr}`);
+			if (command === 'update') return {};
+			return JSON.parse(stdout);
+		} catch (error: any) {
+			console.error(`Error executing command: ${fullCommand}`, error);
+			if (error.code === 'ENOENT' || (error.stderr && error.stderr.includes('cannot find the path'))) {
+				throw new NodeOperationError(this.getNode(), `Could not find the Python script. Please ensure the project's setup script has been run. Path tried: ${fullCommand}`);
+			}
+			if (error instanceof SyntaxError) {
+				throw new NodeOperationError(this.getNode(), `The Python script did not return valid JSON for the command: '${command}'. Raw output: ${error.message}`);
+			}
+			throw new NodeOperationError(this.getNode(), `Failed to execute manager.py command: ${command}. Raw Error: ${getErrorMessage(error)}`);
 		}
-
-		return JSON.parse(stdout);
-	} catch (error: any) {
-		console.error(`Error executing command: ${fullCommand}`, error);
-		if (error.code === 'ENOENT' || (error.stderr && error.stderr.includes('cannot find the path'))) {
-			throw new NodeOperationError(this.getNode(), `Could not find the Python script. Please ensure the project's setup script has been run. Path tried: ${fullCommand}`);
-		}
-		// Check for JSON parsing errors specifically
-		if (error instanceof SyntaxError) {
-			throw new NodeOperationError(this.getNode(), `The Python script did not return valid JSON for the command: '${command}'. Raw output: ${error.message}`);
-		}
-		throw new NodeOperationError(this.getNode(), `Failed to execute manager.py command: ${command}. Raw Error: ${getErrorMessage(error)}`);
 	}
+
+	// FIX: For executing subcommands with data, use 'spawn' to stream data via stdin.
+	return new Promise((resolve, reject) => {
+		const process = spawn(pythonPath, [managerPath, command]);
+		let stdout = '';
+		let stderr = '';
+
+		process.stdout.on('data', (data) => {
+			stdout += data.toString();
+		});
+
+		process.stderr.on('data', (data) => {
+			stderr += data.toString();
+		});
+
+		process.on('close', (code) => {
+			if (stderr) console.error(`Manager stderr: ${stderr}`);
+			if (code !== 0) {
+				const error = new NodeOperationError(this.getNode(), `Execution of '${command}' failed with exit code ${code}. Raw Error: ${stderr}`);
+				return reject(error);
+			}
+			try {
+				resolve(JSON.parse(stdout));
+			} catch (e) {
+				const error = new NodeOperationError(this.getNode(), `The Python script did not return valid JSON for the command: '${command}'. Raw output: ${stdout}`);
+				reject(error);
+			}
+		});
+
+		process.on('error', (err) => {
+			reject(new NodeOperationError(this.getNode(), `Failed to spawn Python process. Error: ${err.message}`));
+		});
+
+		// Write the JSON data to the Python script's standard input.
+		process.stdin.write(JSON.stringify(inputData));
+		process.stdin.end();
+	});
 }
 
 // --- Main Node Class ---
@@ -149,16 +181,13 @@ export class MediaManager implements INodeType {
 							required: field.required || false,
 							display: true,
 							type: field.type || 'string',
-							defaultMatch: false, // FIX: Added required 'defaultMatch' property
+							defaultMatch: false,
 						};
 
-						// If the field is an 'options' type, pass the options array.
 						if (field.type === 'options' && Array.isArray(field.options)) {
 							n8nField.options = field.options;
 						}
 
-						// FIX: The 'default' property is not part of the base ResourceMapperField type,
-						// but it is used by the UI. We handle it carefully here.
 						if (field.default !== undefined) {
 							n8nField.default = field.default;
 						}
@@ -180,16 +209,14 @@ export class MediaManager implements INodeType {
 		const parameters = this.getNodeParameter('parameters', 0) as { value: object };
 		const inputData = parameters.value || {};
 
-		const inputJsonString = JSON.stringify(inputData);
-		const escapedInput = `'${inputJsonString.replace(/'/g, "'\\''")}'`;
-		const command = `${subcommand} ${escapedInput}`;
-
+		// FIX: We now pass the inputData directly to the manager command function.
 		try {
-			const result = await executeManagerCommand.call(this, command);
+			const result = await executeManagerCommand.call(this, subcommand, inputData);
 			const returnData = this.helpers.returnJsonArray(Array.isArray(result) ? result : [result]);
 			return [returnData];
 		} catch (error) {
-			throw new NodeOperationError(this.getNode(), `Execution of '${subcommand}' failed. Error: ${getErrorMessage(error)}`);
+			// The error is already a NodeOperationError, so we can just re-throw it.
+			throw error;
 		}
 	}
 }

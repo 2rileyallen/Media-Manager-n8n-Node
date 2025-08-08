@@ -165,31 +165,31 @@ def run_subcommand(name, input_data):
     execution_env["SUBCOMMAND_TOOL_PATH"] = subcommand_tool_path
     
     # Prepare for execution
-    input_json = json.dumps(input_data)
+    # No longer need to stringify here, as it's handled by the n8n node
     subcommand_script_path = os.path.join(SUBCOMMANDS_DIR, f"{name}.py")
     
     print(f"\n--- Running Subcommand: {name} ---", file=sys.stderr)
     try:
-        process = subprocess.run(
-            [python_exe, subcommand_script_path, input_json],
-            check=True,
-            capture_output=True,
+        # Use spawn to handle stdin correctly
+        process = subprocess.Popen(
+            [python_exe, subcommand_script_path],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             encoding='utf-8',
             env=execution_env
         )
+        # Write data to stdin and close it
+        stdout, stderr = process.communicate(input=json.dumps(input_data))
         
         # For n8n, clean JSON output must go to stdout
-        print(process.stdout)
+        print(stdout)
         
         # Stderr can be used for logging/debugging information in n8n
-        if process.stderr:
-            print(process.stderr, file=sys.stderr)
+        if stderr:
+            print(stderr, file=sys.stderr)
             
-    except subprocess.CalledProcessError as e:
-        print(f"ERROR: Subcommand '{name}' failed with an error.", file=sys.stderr)
-        print(e.stdout, file=sys.stderr)
-        print(e.stderr, file=sys.stderr)
     except FileNotFoundError:
         print(f"ERROR: Python executable not found at '{python_exe}'.", file=sys.stderr)
 
@@ -198,7 +198,7 @@ def main():
     """The main command-line interface router."""
     if len(sys.argv) < 2:
         print("Usage: python manager.py <command> [args...]", file=sys.stderr)
-        print("Available commands: list, update, <subcommand_name> [json_input|file_path]", file=sys.stderr)
+        print("Available commands: list, update, <subcommand_name>", file=sys.stderr)
         return
 
     command = sys.argv[1]
@@ -225,28 +225,16 @@ def main():
         subcommand_name = command
         input_data = {}
 
-        if len(sys.argv) > 2:
-            input_arg = sys.argv[2]
-            
-            # FIX: New, more robust logic for handling CLI input
-            try:
-                # First, try to parse it as a JSON string
-                input_data = json.loads(input_arg)
-            except json.JSONDecodeError:
-                # If that fails, check if it's a path to a .json file
-                if os.path.isfile(input_arg) and input_arg.lower().endswith('.json'):
-                    try:
-                        with open(input_arg, 'r', encoding='utf-8') as f:
-                            input_data = json.load(f)
-                    except Exception as e:
-                        print(f"ERROR: Could not read or parse JSON file '{input_arg}': {e}", file=sys.stderr)
-                        return
-                # If it's not a JSON string or .json file, assume it's a direct file path
-                else:
-                    # This is a simple convention: we'll pass it as 'file_path'
-                    # which matches the schema of many of our tools.
-                    input_data = {"file_path": input_arg}
-        
+        # Read the JSON data from standard input (stdin)
+        # This is more robust and avoids command line length limits.
+        try:
+            stdin_content = sys.stdin.read()
+            if stdin_content:
+                input_data = json.loads(stdin_content)
+        except json.JSONDecodeError:
+            print(f"ERROR: Could not decode JSON from standard input.", file=sys.stderr)
+            return
+
         run_subcommand(subcommand_name, input_data)
 
 if __name__ == "__main__":
