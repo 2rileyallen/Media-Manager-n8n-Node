@@ -2,7 +2,6 @@
   "name": "n8n-nodes-media-manager",
   "version": "1.0.0",
   "description": "A custom n8n node to run media automation subcommands.",
-  "type": "module",
   "main": "index.js",
   "scripts": {
     "build": "tsc",
@@ -28,8 +27,8 @@
     "@typescript-eslint/parser": "~5.45",
     "eslint-plugin-n8n-nodes-base": "^1.11.0",
     "gulp": "^4.0.2",
-    "n8n-core": "*",
-    "n8n-workflow": "*",
+    "n8n-core": "^1.0.0",
+    "n8n-workflow": "^1.0.0",
     "prettier": "^2.7.1",
     "typescript": "~4.8.4"
   }
