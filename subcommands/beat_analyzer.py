@@ -9,7 +9,8 @@ import json
 REQUIRES = [
     "librosa==0.10.1",
     "numpy==1.26.4",
-    "ffmpeg-python==0.2.0", # FIX: Added the required ffmpeg wrapper
+    "ffmpeg-python==0.2.0",
+    "setuptools", # FIX: Added to resolve the 'pkg_resources' error
 ]
 
 # 2. N8N UI SCHEMA: A list of dictionaries defining the UI for the n8n node.
