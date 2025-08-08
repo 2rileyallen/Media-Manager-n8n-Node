@@ -113,7 +113,7 @@ export class MediaManager implements INodeType {
 				typeOptions: { loadOptionsMethod: 'getProcessingModes' },
 				default: 'single', // Default to 'single'
 				description: 'Choose how to process data. This appears only if the subcommand supports multiple modes.',
-				// This will now be hidden automatically if getProcessingModes returns an empty array.
+				// This field is now automatically hidden by n8n if getProcessingModes returns an empty array.
 			},
 			{
 				displayName: 'Parameters',
@@ -211,18 +211,19 @@ export class MediaManager implements INodeType {
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
 		const subcommand = this.getNodeParameter('subcommand', 0) as string;
-		const parameters = this.getNodeParameter('parameters', 0) as { value: object };
 		
-		// Check if the subcommand supports modes to determine the processing strategy.
+		// This logic needs to be inside the loop for single mode, but outside for batch mode.
+		// First, determine the mode.
 		const subcommands = await executeManagerCommand.call(this, 'list');
 		const subcommandData = subcommands[subcommand];
 		const processingMode = this.getNodeParameter('processingMode', 0) as string;
-		const isBatchMode = subcommandData.modes && processingMode === 'batch';
+		const isBatchMode = subcommandData && subcommandData.modes && processingMode === 'batch';
 
 		if (isBatchMode) {
 			// BATCH MODE: Process all items as a single unit.
 			try {
 				const allJsonData = items.map(item => item.json);
+				const parameters = this.getNodeParameter('parameters', 0) as { value: object };
 				const inputData = { ...parameters.value, '@items': allJsonData, '@mode': 'batch' };
 				const result = await executeManagerCommand.call(this, subcommand, inputData);
 				// Batch mode returns a single item.
@@ -239,8 +240,8 @@ export class MediaManager implements INodeType {
 			for (let i = 0; i < items.length; i++) {
 				try {
 					// In single mode, we get parameters for each item.
-					const singleItemParameters = this.getNodeParameter('parameters', i) as { value: object };
-					const inputData = { ...singleItemParameters.value, '@item': items[i].json, '@mode': 'single' };
+					const parameters = this.getNodeParameter('parameters', i) as { value: object };
+					const inputData = { ...parameters.value, '@item': items[i].json, '@mode': 'single' };
 					const result = await executeManagerCommand.call(this, subcommand, inputData);
 					returnData.push({ json: { ...items[i].json, ...result }, pairedItem: { item: i } });
 				} catch (error) {
