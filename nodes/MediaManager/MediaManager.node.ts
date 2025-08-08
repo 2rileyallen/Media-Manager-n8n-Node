@@ -65,7 +65,7 @@ async function executeManagerCommand(
 	} catch (error) {
 		console.error(`Error executing command: ${fullCommand}`, error);
 		const errorMessage = getErrorMessage(error);
-		throw new NodeOperationError(this.getNode(), `Failed to execute manager.py command: ${command}. Raw Error: ${errorMessage}`);
+		throw new NodeOperationError(this.getNode(), `Failed to execute manager.py command: ${command}. Raw Error: ${getErrorMessage(error)}`);
 	}
 }
 
@@ -164,7 +164,7 @@ export class MediaManager implements INodeType {
 					}
 				} catch (error) {
 					const message = getErrorMessage(error);
-					console.error("Failed to load subcommands:", message);
+					console.error("Failed to load subcommands:", getErrorMessage(error));
 				}
 				return returnOptions;
 			},
@@ -181,7 +181,7 @@ export class MediaManager implements INodeType {
 					return schema;
 				} catch(error) {
 					const message = getErrorMessage(error);
-					console.error(`Failed to load parameters for ${subcommandName}:`, message);
+					console.error(`Failed to load parameters for ${subcommandName}:`, getErrorMessage(error));
 					return [];
 				}
 			} as any,
@@ -212,7 +212,7 @@ export class MediaManager implements INodeType {
 			return [returnData];
 		} catch (error) {
 			const message = getErrorMessage(error);
-			throw new NodeOperationError(this.getNode(), `Execution of '${subcommand}' failed. Error: ${message}`);
+			throw new NodeOperationError(this.getNode(), `Execution of '${subcommand}' failed. Error: ${getErrorMessage(error)}`);
 		}
 	}
 }
