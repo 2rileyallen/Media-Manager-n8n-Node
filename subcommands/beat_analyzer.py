@@ -9,6 +9,7 @@ import json
 REQUIRES = [
     "librosa==0.10.1",
     "numpy==1.26.4",
+    "ffmpeg-python==0.2.0", # FIX: Added the required ffmpeg wrapper
 ]
 
 # 2. N8N UI SCHEMA: A list of dictionaries defining the UI for the n8n node.
@@ -100,6 +101,7 @@ def analyze_beats(audio_file, beats_per_second, smoothing_factor=0.1):
         return normalized.astype(int).tolist(), loudness_category
         
     except Exception as e:
+        # Re-raise the exception to be caught by the main function's error handler
         raise RuntimeError(f"Error analyzing audio file: {e}")
 
 # --- Main Execution Logic ---
@@ -149,6 +151,8 @@ def main(input_data, tool_path):
         # Catch any exceptions and report them clearly as JSON to stderr.
         error_message = {"status": "error", "message": str(e)}
         print(json.dumps(error_message), file=sys.stderr)
+        # FIX: Exit with a non-zero status code to signal an error to n8n.
+        sys.exit(1)
 
 # --- Boilerplate for Direct Execution ---
 if __name__ == "__main__":
@@ -161,5 +165,9 @@ if __name__ == "__main__":
             main(data, tool_folder)
         except json.JSONDecodeError:
             print(json.dumps({"status": "error", "message": "Invalid JSON input from stdin"}), file=sys.stderr)
+            # FIX: Exit with a non-zero status code
+            sys.exit(1)
     else:
         print(json.dumps({"status": "error", "message": "No JSON input provided to stdin"}), file=sys.stderr)
+        # FIX: Exit with a non-zero status code
+        sys.exit(1)
