@@ -106,25 +106,18 @@ export class MediaManager implements INodeType {
 				default: '',
 				required: true,
 			},
-			// ADDED: A dropdown to select the processing mode.
 			{
 				displayName: 'Processing Mode',
 				name: 'processingMode',
 				type: 'options',
 				typeOptions: { loadOptionsMethod: 'getProcessingModes' },
-				default: '',
-				description: 'Choose how to process the incoming data.',
-				displayOptions: {
-					// This dropdown only appears if the selected subcommand *has* modes.
-					show: {
-						'@modesExist': [true], // FIX: Use a simple boolean check
-					},
-				},
+				default: 'single', // Default to 'single'
+				description: 'Choose how to process data. This appears only if the subcommand supports multiple modes.',
+				// This will now be hidden automatically if getProcessingModes returns an empty array.
 			},
-			// This resourceMapper is for SINGLE item processing.
 			{
 				displayName: 'Parameters',
-				name: 'parametersSingle',
+				name: 'parameters',
 				type: 'resourceMapper',
 				default: { mappingMode: 'defineBelow', value: null },
 				typeOptions: {
@@ -133,54 +126,13 @@ export class MediaManager implements INodeType {
 						resourceMapperMethod: 'getSubcommandSchema',
 						mode: 'add',
 						fieldWords: { singular: 'parameter', plural: 'parameters' },
-					},
-				},
-				displayOptions: {
-					show: {
-						// Show this if EITHER the subcommand has no modes OR the 'single' mode is selected.
-						'@modesExist': [false],
-						processingMode: ['single', ''], // Also show for default empty value
-					},
-				},
-			},
-			// This resourceMapper is for BATCH processing.
-			{
-				displayName: 'Parameters',
-				name: 'parametersBatch',
-				type: 'resourceMapper',
-				default: { mappingMode: 'defineBelow', value: null },
-				typeOptions: {
-					loadOptionsDependsOn: ['subcommand', 'processingMode'],
-					resourceMapper: {
-						resourceMapperMethod: 'getSubcommandSchema',
-						mode: 'add',
-						fieldWords: { singular: 'parameter', plural: 'parameters' },
-					},
-				},
-				displayOptions: {
-					show: {
-						// Only show this if the 'batch' mode is selected.
-						processingMode: ['batch'],
 					},
 				},
 			},
 		],
 	};
 
-	// These are hidden properties used to store the full schema for display logic.
-	// This is a standard n8n pattern for complex dynamic UIs.
-	protected static hiddenProperties = {
-		'@modesExist': {
-			displayName: 'Modes Exist Flag',
-			name: '@modesExist',
-			type: 'boolean',
-			default: false,
-			typeOptions: { loadOptionsMethod: 'getHiddenModesExist' },
-		},
-	};
-
 	methods = {
-		// FIX: Cast to 'any' to bypass strict type check for the helper method.
 		loadOptions: {
 			async getSubcommands(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 				try {
@@ -193,14 +145,16 @@ export class MediaManager implements INodeType {
 					return [];
 				}
 			},
-			// This method populates the "Processing Mode" dropdown.
 			async getProcessingModes(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 				const subcommandName = this.getCurrentNodeParameter('subcommand') as string;
 				if (!subcommandName) return [];
 				try {
 					const subcommands = await executeManagerCommand.call(this, 'list');
 					const modes = subcommands[subcommandName]?.modes;
-					if (!modes) return [];
+					// If no modes are defined, return an empty array. n8n will hide the field.
+					if (!modes || Object.keys(modes).length === 0) {
+						return [];
+					}
 					return Object.keys(modes).map(modeName => ({
 						name: modes[modeName].displayName || modeName,
 						value: modeName,
@@ -209,19 +163,7 @@ export class MediaManager implements INodeType {
 					return [];
 				}
 			},
-			// This loads a simple boolean into a hidden field for the displayOptions to use.
-			async getHiddenModesExist(this: ILoadOptionsFunctions): Promise<boolean> {
-				const subcommandName = this.getCurrentNodeParameter('subcommand') as string;
-				if (!subcommandName) return false;
-				try {
-					const subcommands = await executeManagerCommand.call(this, 'list');
-					const modes = subcommands[subcommandName]?.modes;
-					return modes && Object.keys(modes).length > 0;
-				} catch (error) {
-					return false;
-				}
-			},
-		} as any,
+		},
 		resourceMapping: {
 			async getSubcommandSchema(this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
 				const subcommandName = this.getCurrentNodeParameter('subcommand') as string;
@@ -233,11 +175,12 @@ export class MediaManager implements INodeType {
 					if (!subcommandData) return { fields: [] };
 
 					let pythonSchema: any[] = [];
+					const processingMode = this.getCurrentNodeParameter('processingMode') as string;
+
 					// Check if the subcommand uses modes.
 					if (subcommandData.modes) {
-						const mode = this.getCurrentNodeParameter('processingMode') as string | undefined;
-						// If mode is not selected yet, or is 'single', default to single.
-						const effectiveMode = mode || 'single';
+						// Use the selected mode, or default to the first available mode.
+						const effectiveMode = processingMode || Object.keys(subcommandData.modes)[0];
 						pythonSchema = subcommandData.modes[effectiveMode]?.input_schema || [];
 					} else {
 						// Fallback to the top-level schema for simple nodes.
@@ -268,19 +211,21 @@ export class MediaManager implements INodeType {
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
 		const subcommand = this.getNodeParameter('subcommand', 0) as string;
+		const parameters = this.getNodeParameter('parameters', 0) as { value: object };
+		
+		// Check if the subcommand supports modes to determine the processing strategy.
+		const subcommands = await executeManagerCommand.call(this, 'list');
+		const subcommandData = subcommands[subcommand];
 		const processingMode = this.getNodeParameter('processingMode', 0) as string;
-
-		// Determine if we are in batch mode.
-		const isBatchMode = processingMode === 'batch';
+		const isBatchMode = subcommandData.modes && processingMode === 'batch';
 
 		if (isBatchMode) {
 			// BATCH MODE: Process all items as a single unit.
 			try {
 				const allJsonData = items.map(item => item.json);
-				const parameters = this.getNodeParameter('parametersBatch', 0) as { value: object };
-				// Pass the mode and the full list of items to Python.
-				const inputData = { ...parameters.value, '@items': allJsonData, '@mode': processingMode };
+				const inputData = { ...parameters.value, '@items': allJsonData, '@mode': 'batch' };
 				const result = await executeManagerCommand.call(this, subcommand, inputData);
+				// Batch mode returns a single item.
 				returnData.push({ json: result });
 			} catch (error) {
 				if (this.continueOnFail()) {
@@ -293,9 +238,9 @@ export class MediaManager implements INodeType {
 			// SINGLE ITEM MODE: Loop through each item individually.
 			for (let i = 0; i < items.length; i++) {
 				try {
-					const parameters = this.getNodeParameter('parametersSingle', i) as { value: object };
-					// Pass the mode and the current item's data.
-					const inputData = { ...parameters.value, '@item': items[i].json, '@mode': processingMode || 'single' };
+					// In single mode, we get parameters for each item.
+					const singleItemParameters = this.getNodeParameter('parameters', i) as { value: object };
+					const inputData = { ...singleItemParameters.value, '@item': items[i].json, '@mode': 'single' };
 					const result = await executeManagerCommand.call(this, subcommand, inputData);
 					returnData.push({ json: { ...items[i].json, ...result }, pairedItem: { item: i } });
 				} catch (error) {
