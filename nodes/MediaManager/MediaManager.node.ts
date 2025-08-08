@@ -12,7 +12,7 @@ import {
 } from 'n8n-workflow';
 
 import { promisify } from 'util';
-import { exec, spawn } from 'child_process'; // FIX: Import 'spawn'
+import { exec, spawn } from 'child_process';
 import * as path from 'path';
 
 const execAsync = promisify(exec);
@@ -64,7 +64,7 @@ async function executeManagerCommand(
 		}
 	}
 
-	// FIX: For executing subcommands with data, use 'spawn' to stream data via stdin.
+	// For executing subcommands with data, use 'spawn' to stream data via stdin.
 	return new Promise((resolve, reject) => {
 		const process = spawn(pythonPath, [managerPath, command]);
 		let stdout = '';
@@ -96,7 +96,6 @@ async function executeManagerCommand(
 			reject(new NodeOperationError(this.getNode(), `Failed to spawn Python process. Error: ${err.message}`));
 		});
 
-		// Write the JSON data to the Python script's standard input.
 		process.stdin.write(JSON.stringify(inputData));
 		process.stdin.end();
 	});
@@ -204,19 +203,36 @@ export class MediaManager implements INodeType {
 		},
 	};
 
+	// FIX: The execute method now loops through all incoming items.
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
-		const subcommand = this.getNodeParameter('subcommand', 0) as string;
-		const parameters = this.getNodeParameter('parameters', 0) as { value: object };
-		const inputData = parameters.value || {};
+		const items = this.getInputData();
+		const returnData: INodeExecutionData[] = [];
 
-		// FIX: We now pass the inputData directly to the manager command function.
-		try {
-			const result = await executeManagerCommand.call(this, subcommand, inputData);
-			const returnData = this.helpers.returnJsonArray(Array.isArray(result) ? result : [result]);
-			return [returnData];
-		} catch (error) {
-			// The error is already a NodeOperationError, so we can just re-throw it.
-			throw error;
+		for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+			try {
+				const subcommand = this.getNodeParameter('subcommand', itemIndex) as string;
+				const parameters = this.getNodeParameter('parameters', itemIndex) as { value: object };
+				const inputData = parameters.value || {};
+
+				const result = await executeManagerCommand.call(this, subcommand, inputData);
+				
+				// Merge the result with the original item's JSON to preserve its data
+				const newItem: INodeExecutionData = {
+					json: { ...items[itemIndex].json, ...result },
+					pairedItem: { item: itemIndex },
+				};
+				
+				returnData.push(newItem);
+
+			} catch (error) {
+				if (this.continueOnFail()) {
+					returnData.push({ json: this.getInputData(itemIndex)[0].json, error: error as NodeOperationError });
+					continue;
+				}
+				throw error;
+			}
 		}
+
+		return [returnData];
 	}
 }
