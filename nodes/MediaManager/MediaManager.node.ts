@@ -50,11 +50,21 @@ async function executeManagerCommand(
 	try {
 		const { stdout, stderr } = await execAsync(fullCommand, { encoding: 'utf-8' });
 		if (stderr) console.error(`Manager stderr: ${stderr}`);
+		
+		// FIX: The 'update' command does not return JSON, so we handle it separately.
+		if (command === 'update') {
+			return {}; // Return an empty object to signify success without data.
+		}
+
 		return JSON.parse(stdout);
 	} catch (error: any) {
 		console.error(`Error executing command: ${fullCommand}`, error);
 		if (error.code === 'ENOENT' || (error.stderr && error.stderr.includes('cannot find the path'))) {
 			throw new NodeOperationError(this.getNode(), `Could not find the Python script. Please ensure the project's setup script has been run. Path tried: ${fullCommand}`);
+		}
+		// Check for JSON parsing errors specifically
+		if (error instanceof SyntaxError) {
+			throw new NodeOperationError(this.getNode(), `The Python script did not return valid JSON for the command: '${command}'. Raw output: ${error.message}`);
 		}
 		throw new NodeOperationError(this.getNode(), `Failed to execute manager.py command: ${command}. Raw Error: ${getErrorMessage(error)}`);
 	}
