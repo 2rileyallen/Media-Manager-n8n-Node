@@ -84,7 +84,6 @@ export class MediaManager implements INodeType {
 			// --- All path inputs have been removed for a zero-config experience ---
 
 			// --- Refresh Button ---
-			// This is now a boolean (toggle switch) that acts as a refresh trigger.
 			{
 				displayName: 'Refresh Subcommand List',
 				name: 'refreshButton',
@@ -108,7 +107,6 @@ export class MediaManager implements INodeType {
 			},
 
 			// --- Dynamic Parameter Section ---
-			// This collection will now be dynamically populated with the correct UI fields.
 			{
 				displayName: 'Parameters',
 				name: 'parameters',
@@ -119,6 +117,8 @@ export class MediaManager implements INodeType {
 					loadOptionsMethod: 'getSubcommandParameters',
 					loadOptionsDependsOn: ['subcommand'],
 				},
+				// FIX: This property is required to allow wiring up expressions from previous nodes.
+				noDataExpression: true,
 			},
 		],
 	};
@@ -129,7 +129,6 @@ export class MediaManager implements INodeType {
 			async getSubcommands(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 				const returnOptions: INodePropertyOptions[] = [];
 				try {
-					// The 'update' command ensures all environments are set up before listing.
 					await executeManagerCommand.call(this, 'update');
 					const subcommands = await executeManagerCommand.call(this, 'list');
 					for (const name in subcommands) {
@@ -154,13 +153,12 @@ export class MediaManager implements INodeType {
 				try {
 					const subcommands = await executeManagerCommand.call(this, 'list');
 					const schema = subcommands[subcommandName]?.input_schema || [];
-					// The schema from Python is already in the correct format for n8n properties.
 					return schema;
 				} catch(error) {
 					console.error(`Failed to load parameters for ${subcommandName}:`, getErrorMessage(error));
 					return [];
 				}
-			} as any, // FIX: Cast to 'any' to bypass a strict TypeScript type check. This is a known pattern for dynamically generating UI properties in n8n.
+			} as any,
 		},
 	};
 
