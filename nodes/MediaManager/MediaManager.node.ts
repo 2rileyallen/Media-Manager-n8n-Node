@@ -6,7 +6,7 @@ import {
 	INodeExecutionData,
 	NodeOperationError,
 	INodePropertyOptions,
-	INodeProperties,
+	ResourceMapperField, // Corrected: IResourceMapper removed
 	NodeConnectionType,
 } from 'n8n-workflow';
 
@@ -16,11 +16,8 @@ import * as path from 'path';
 
 const execAsync = promisify(exec);
 
-/**
- * A helper function to safely extract an error message from an unknown error type.
- * @param error The error object, which is of type 'unknown'.
- * @returns A string representing the error message.
- */
+// --- Helper Functions ---
+
 function getErrorMessage(error: unknown): string {
 	if (error instanceof Error) {
 		const execError = error as Error & { stderr?: string };
@@ -32,17 +29,10 @@ function getErrorMessage(error: unknown): string {
 	return String(error);
 }
 
-
-/**
- * Executes a command for the manager.py script and handles parsing.
- * This function now automatically detects all required paths.
- * @param command The command to run (e.g., 'list', 'update')
- */
 async function executeManagerCommand(
 	this: IExecuteFunctions | ILoadOptionsFunctions,
 	command: string,
 ): Promise<any> {
-	// --- Fully Automatic Path Detection ---
 	const currentNodeDir = __dirname;
 	const nodeProjectRoot = path.join(currentNodeDir, '..', '..', '..');
 	const projectPath = path.join(nodeProjectRoot, '..', 'media_manager');
@@ -50,15 +40,11 @@ async function executeManagerCommand(
 	const pythonExecutable = process.platform === 'win32' ? 'python.exe' : 'python';
 	const venvSubfolder = process.platform === 'win32' ? 'Scripts' : 'bin';
 	const pythonPath = path.join(projectPath, 'venv', venvSubfolder, pythonExecutable);
-	// --- End of Automatic Path Detection ---
-
 	const fullCommand = `"${pythonPath}" "${managerPath}" ${command}`;
 
 	try {
 		const { stdout, stderr } = await execAsync(fullCommand, { encoding: 'utf-8' });
-		if (stderr) {
-			console.error(`Manager stderr: ${stderr}`);
-		}
+		if (stderr) console.error(`Manager stderr: ${stderr}`);
 		return JSON.parse(stdout);
 	} catch (error) {
 		console.error(`Error executing command: ${fullCommand}`, error);
@@ -66,6 +52,7 @@ async function executeManagerCommand(
 	}
 }
 
+// --- Main Node Class ---
 
 export class MediaManager implements INodeType {
 	description: INodeTypeDescription = {
@@ -81,9 +68,6 @@ export class MediaManager implements INodeType {
 		inputs: [NodeConnectionType.Main],
 		outputs: [NodeConnectionType.Main],
 		properties: [
-			// --- All path inputs have been removed for a zero-config experience ---
-
-			// --- Refresh Button ---
 			{
 				displayName: 'Refresh Subcommand List',
 				name: 'refreshButton',
@@ -91,8 +75,6 @@ export class MediaManager implements INodeType {
 				default: false,
 				description: 'Toggle this switch to re-scan the subcommands folder for any new or deleted tools.',
 			},
-
-			// --- Subcommand Selection Dropdown ---
 			{
 				displayName: 'Subcommand',
 				name: 'subcommand',
@@ -105,27 +87,26 @@ export class MediaManager implements INodeType {
 				required: true,
 				description: 'Choose the subcommand to run.',
 			},
-
-			// --- Dynamic Parameter Section ---
 			{
 				displayName: 'Parameters',
 				name: 'parameters',
-				placeholder: 'Add Parameter',
-				type: 'collection',
-				default: {},
+				type: 'resourceMapper',
+				default: { mappingMode: 'defineBelow', value: null },
+				description: 'The parameters for the selected subcommand.',
 				typeOptions: {
-					loadOptionsMethod: 'getSubcommandParameters',
 					loadOptionsDependsOn: ['subcommand'],
+					resourceMapper: {
+						resourceMapperMethod: 'getSubcommandSchema',
+						mode: 'add',
+						fieldWords: { singular: 'parameter', plural: 'parameters' },
+					},
 				},
-				// FIX: This property is required to allow wiring up expressions from previous nodes.
-				noDataExpression: true,
 			},
 		],
 	};
 
 	methods = {
 		loadOptions: {
-			// This method is triggered by the 'refreshButton' toggle.
 			async getSubcommands(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 				const returnOptions: INodePropertyOptions[] = [];
 				try {
@@ -141,37 +122,39 @@ export class MediaManager implements INodeType {
 				}
 				return returnOptions;
 			},
-
-			// This method is triggered when a 'subcommand' is selected.
-			// It returns the UI schema to dynamically build the 'Parameters' section.
-			getSubcommandParameters: async function(this: ILoadOptionsFunctions): Promise<INodeProperties[]> {
+		},
+		resourceMapper: {
+			async getSubcommandSchema(this: ILoadOptionsFunctions): Promise<ResourceMapperField[]> {
 				const subcommandName = this.getCurrentNodeParameter('subcommand') as string;
-				if (!subcommandName) {
-					return [];
-				}
+				if (!subcommandName) return [];
 
 				try {
 					const subcommands = await executeManagerCommand.call(this, 'list');
-					const schema = subcommands[subcommandName]?.input_schema || [];
-					return schema;
-				} catch(error) {
-					console.error(`Failed to load parameters for ${subcommandName}:`, getErrorMessage(error));
+					const pythonSchema = subcommands[subcommandName]?.input_schema || [];
+
+					const n8nSchema: ResourceMapperField[] = pythonSchema.map((field: any) => ({
+						id: field.name,
+						displayName: field.displayName,
+						required: field.required || false,
+						display: true,
+						type: field.type || 'string',
+					}));
+
+					return n8nSchema;
+				} catch (error) {
+					console.error(`Failed to load schema for ${subcommandName}:`, getErrorMessage(error));
 					return [];
 				}
-			} as any,
-		},
+			},
+		}, // Corrected: 'as IResourceMapper' cast removed
 	};
-
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const subcommand = this.getNodeParameter('subcommand', 0) as string;
-		// The parameters are now a flat object, not nested under 'inputData'.
-		const parameters = this.getNodeParameter('parameters', 0) as object;
+		const parameters = this.getNodeParameter('parameters', 0) as { value: object };
+		const inputData = parameters.value || {};
 
-		// Convert the parameters object to a JSON string for the CLI.
-		const inputJsonString = JSON.stringify(parameters);
-
-		// Correctly escape the JSON string for the command line
+		const inputJsonString = JSON.stringify(inputData);
 		const escapedInput = `'${inputJsonString.replace(/'/g, "'\\''")}'`;
 		const command = `${subcommand} ${escapedInput}`;
 
