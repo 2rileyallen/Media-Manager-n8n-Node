@@ -61,14 +61,6 @@ MODES = {
         "displayName": "Array: Process All Items Together",
         "input_schema": [
             {
-                "name": "speakers",
-                "displayName": "Speakers Dictionary",
-                "type": "json",
-                "required": True,
-                "default": '{\n  "speaker_1": "path/to/voice.wav"\n}',
-                "description": "A JSON object mapping speaker IDs to their reference audio file paths."
-            },
-            {
                 "name": "output_file_path",
                 "displayName": "Final Output File Path",
                 "type": "string",
@@ -97,9 +89,22 @@ def main(input_data, tool_path):
         if mode == "batch":
             # In batch mode, the script comes from the array of all n8n items.
             tts_script = input_data.get("@items", [])
-            speakers_dict = input_data.get("speakers", {})
             output_file_path = input_data.get("output_file_path")
             
+            # Intelligently build the speakers_dict from the items array
+            speakers_dict = {}
+            for i, item in enumerate(tts_script):
+                speaker_path = item.get("speaker_audio_path")
+                if speaker_path and speaker_path not in speakers_dict.values():
+                    # Create a unique speaker ID for each unique path
+                    speakers_dict[f"speaker_{i+1}"] = speaker_path
+                # Add the speaker_id back to the item for later reference
+                # Find the key corresponding to the path
+                for sid, path in speakers_dict.items():
+                    if path == speaker_path:
+                        item['speaker'] = sid
+                        break
+
             # The n8n UI for batch mode doesn't have these, so we use defaults.
             exaggeration = 0.5
             cfg_weight = 0.5
