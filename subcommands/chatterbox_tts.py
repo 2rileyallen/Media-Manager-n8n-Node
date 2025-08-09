@@ -16,8 +16,6 @@ REQUIRES = [
 ]
 
 # 2. N8N UI SCHEMA - NOW WITH MODES
-# This new structure allows the n8n node to display different UI fields
-# based on the user's selection in the "Processing Mode" dropdown.
 MODES = {
     "single": {
         "displayName": "Process Each Item Individually",
@@ -60,15 +58,22 @@ MODES = {
         ]
     },
     "batch": {
-        "displayName": "Array: Process Items Together",
+        "displayName": "Array: Process All Items Together",
         "input_schema": [
             {
-                "name": "batch_script",
-                "displayName": "Array of Items",
+                "name": "speakers",
+                "displayName": "Speakers Dictionary",
+                "type": "json",
+                "required": True,
+                "default": '{\n  "speaker_1": "path/to/voice.wav"\n}',
+                "description": "A JSON object mapping speaker IDs to their reference audio file paths."
+            },
+            {
+                "name": "output_file_path",
+                "displayName": "Final Output File Path",
                 "type": "string",
                 "required": True,
-                "default": '{\n  "speakers": {\n    "speaker_1": "path/to/voice.wav"\n  },\n  "output_file_path": "path/to/output.m4a",\n  "script": [\n    {\n      "speaker": "speaker_1",\n      "text": "Your text here."\n    }\n  ]\n}',
-                "description": "A single JSON object containing the full script, speakers, and output path."
+                "description": "The absolute path for the final combined audio file."
             }
         ]
     }
@@ -90,26 +95,14 @@ def main(input_data, tool_path):
         mode = input_data.get("@mode", "single")
         
         if mode == "batch":
-            # In batch mode, all data comes from a single JSON field.
-            batch_data = input_data.get("batch_script")
-
-            # FIX: Handle cases where the input is a string (from manual entry)
-            # or already an object/list (from an n8n expression).
-            if isinstance(batch_data, str):
-                try:
-                    batch_data = json.loads(batch_data)
-                except json.JSONDecodeError:
-                    raise TypeError("The 'Array of Items' field must contain a valid JSON string.")
+            # In batch mode, the script comes from the array of all n8n items.
+            tts_script = input_data.get("@items", [])
+            speakers_dict = input_data.get("speakers", {})
+            output_file_path = input_data.get("output_file_path")
             
-            if not isinstance(batch_data, dict):
-                 raise TypeError("'Array of Items' must be a valid JSON object.")
-            
-            tts_script = batch_data.get("script", [])
-            speakers_dict = batch_data.get("speakers", {})
-            output_file_path = batch_data.get("output_file_path")
-            # Global parameters can be defined at the top level of the batch script
-            exaggeration = batch_data.get("exaggeration", 0.5)
-            cfg_weight = batch_data.get("cfg_weight", 0.5)
+            # The n8n UI for batch mode doesn't have these, so we use defaults.
+            exaggeration = 0.5
+            cfg_weight = 0.5
 
         else: # single mode
             item_data = input_data.get("@item", {})
@@ -180,7 +173,7 @@ def main(input_data, tool_path):
         # --- 3. Return Clean JSON Output ---
         result = {
             "status": "success",
-            "message": "Audio processing completed.",
+            "message": "Audio processing completed successfully.",
             "output_files": generated_output_files
         }
         print(json.dumps(result, indent=4))
