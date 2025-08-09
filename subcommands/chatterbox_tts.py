@@ -62,10 +62,10 @@ MODES = {
         "input_schema": [
             {
                 "name": "output_file_path",
-                "displayName": "Final Output File Path",
+                "displayName": "Final Output File Path (Optional)",
                 "type": "string",
-                "required": True,
-                "description": "The absolute path for the final combined audio file."
+                "default": "",
+                "description": "Optional. The path for the combined audio. If left blank, the path from the first item in your array will be used."
             }
         ]
     }
@@ -91,25 +91,28 @@ def main(input_data, tool_path):
         mode = input_data.get("@mode", "single")
         
         if mode == "batch":
-            # In batch mode, the script comes from the array of all n8n items.
             tts_script = input_data.get("@items", [])
+            # Get the output path from the UI parameters first.
             output_file_path = input_data.get("output_file_path")
+
+            # FIX: If the output path is not in the UI params, try to get it from the first item
+            # in the input array. This makes the node more flexible.
+            if not output_file_path and tts_script:
+                first_item = tts_script[0]
+                if isinstance(first_item, dict):
+                    output_file_path = first_item.get("output_file_path")
             
             # Intelligently build the speakers_dict from the items array
             speakers_dict = {}
             for i, item in enumerate(tts_script):
                 speaker_path = item.get("speaker_audio_path")
                 if speaker_path and speaker_path not in speakers_dict.values():
-                    # Create a unique speaker ID for each unique path
                     speakers_dict[f"speaker_{i+1}"] = speaker_path
-                # Add the speaker_id back to the item for later reference
-                # Find the key corresponding to the path
                 for sid, path in speakers_dict.items():
                     if path == speaker_path:
                         item['speaker'] = sid
                         break
 
-            # The n8n UI for batch mode doesn't have these, so we use defaults.
             exaggeration = 0.5
             cfg_weight = 0.5
 
