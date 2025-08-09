@@ -116,13 +116,8 @@ export class MediaManager implements INodeType {
 					loadOptionsDependsOn: ['subcommand'],
 				},
 				default: '', // Default to empty to force a selection
-				description: 'Choose how to process data.',
-				displayOptions: {
-					show: {
-						// This is the rule: only show if the hidden flag is true.
-						'@modesExist': [true],
-					},
-				},
+				description: 'Choose how to process data. This appears only if the subcommand supports multiple modes.',
+				// This field is now automatically hidden by n8n if getProcessingModes returns an empty array.
 			},
 			{
 				displayName: 'Parameters',
@@ -139,20 +134,6 @@ export class MediaManager implements INodeType {
 				},
 			},
 		],
-	};
-
-	// FIX: 'hiddenProperties' moved here, outside of the 'description' object.
-	// This is a static property of the class itself.
-	protected static hiddenProperties = {
-		'@modesExist': {
-			name: '@modesExist',
-			type: 'boolean',
-			default: false,
-			typeOptions: {
-				loadOptionsMethod: 'checkIfModesExist',
-				loadOptionsDependsOn: ['subcommand'],
-			},
-		},
 	};
 
 	methods = {
@@ -174,7 +155,10 @@ export class MediaManager implements INodeType {
 				try {
 					const subcommands = await executeManagerCommand.call(this, 'list');
 					const modes = subcommands[subcommandName]?.modes;
-					if (!modes || Object.keys(modes).length === 0) return [];
+					// If no modes are defined, return an empty array. n8n will hide the field.
+					if (!modes || Object.keys(modes).length === 0) {
+						return [];
+					}
 					return Object.keys(modes).map(modeName => ({
 						name: modes[modeName].displayName || modeName,
 						value: modeName,
@@ -183,19 +167,7 @@ export class MediaManager implements INodeType {
 					return [];
 				}
 			},
-			// This new method updates the hidden '@modesExist' flag.
-			async checkIfModesExist(this: ILoadOptionsFunctions): Promise<boolean> {
-				const subcommandName = this.getCurrentNodeParameter('subcommand') as string;
-				if (!subcommandName) return false;
-				try {
-					const subcommands = await executeManagerCommand.call(this, 'list');
-					const modes = subcommands[subcommandName]?.modes;
-					return !!modes && Object.keys(modes).length > 0;
-				} catch (error) {
-					return false;
-				}
-			},
-		} as any, // Cast to 'any' to allow the helper method for the hidden property
+		},
 		resourceMapping: {
 			async getSubcommandSchema(this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
 				const subcommandName = this.getCurrentNodeParameter('subcommand') as string;
@@ -209,6 +181,7 @@ export class MediaManager implements INodeType {
 					let pythonSchema: any[] = [];
 					const processingMode = this.getCurrentNodeParameter('processingMode') as string;
 
+					// Check if the subcommand uses modes.
 					if (subcommandData.modes) {
 						// If a mode is selected, use its schema.
 						if (processingMode && subcommandData.modes[processingMode]) {
