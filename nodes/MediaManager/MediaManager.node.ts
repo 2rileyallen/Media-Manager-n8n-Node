@@ -111,8 +111,11 @@ export class MediaManager implements INodeType {
 				displayName: 'Processing Mode',
 				name: 'processingMode',
 				type: 'options',
-				typeOptions: { loadOptionsMethod: 'getProcessingModes' },
-				default: 'single',
+				typeOptions: {
+					loadOptionsMethod: 'getProcessingModes',
+					loadOptionsDependsOn: ['subcommand'],
+				},
+				default: '',
 				description: 'Choose how to process data. This appears only if the subcommand supports multiple modes.',
 			},
 			{
@@ -206,42 +209,35 @@ export class MediaManager implements INodeType {
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
-		const subcommand = this.getNodeParameter('subcommand', 0) as string;
-		
-		const subcommands = await executeManagerCommand.call(this, 'list');
-		const subcommandData = subcommands[subcommand];
-		const processingMode = this.getNodeParameter('processingMode', 0) as string;
-		
-		const isBatchMode = subcommandData && subcommandData.modes && processingMode === 'batch';
 
-		if (isBatchMode) {
+		// The node will now process every incoming item, one by one.
+		// The logic to handle a "batch" (an array within a single item) is the responsibility
+		// of the Python subcommand itself.
+		for (let i = 0; i < items.length; i++) {
 			try {
-				const allJsonData = items.map(item => item.json);
-				const parameters = this.getNodeParameter('parameters', 0) as { value: object };
-				const inputData = { ...parameters.value, '@items': allJsonData, '@mode': 'batch' };
+				const subcommand = this.getNodeParameter('subcommand', i) as string;
+				const processingMode = this.getNodeParameter('processingMode', i) as string;
+				const parameters = this.getNodeParameter('parameters', i) as { value: object };
+				
+				// Pass the selected mode and the current item's data to the Python script.
+				// The Python script will decide how to interpret this based on the mode.
+				const inputData = { ...parameters.value, '@item': items[i].json, '@mode': processingMode || 'single' };
+				
 				const result = await executeManagerCommand.call(this, subcommand, inputData);
-				returnData.push({ json: result });
+				
+				const newItem: INodeExecutionData = {
+					json: { ...items[i].json, ...result },
+					pairedItem: { item: i },
+				};
+
+				returnData.push(newItem);
+
 			} catch (error) {
 				if (this.continueOnFail()) {
-					returnData.push({ json: {}, error: error as NodeOperationError });
-				} else {
-					throw error;
+					returnData.push({ json: items[i].json, error: error as NodeOperationError });
+					continue;
 				}
-			}
-		} else {
-			for (let i = 0; i < items.length; i++) {
-				try {
-					const parameters = this.getNodeParameter('parameters', i) as { value: object };
-					const inputData = { ...parameters.value, '@item': items[i].json, '@mode': 'single' };
-					const result = await executeManagerCommand.call(this, subcommand, inputData);
-					returnData.push({ json: { ...items[i].json, ...result }, pairedItem: { item: i } });
-				} catch (error) {
-					if (this.continueOnFail()) {
-						returnData.push({ json: items[i].json, error: error as NodeOperationError });
-						continue;
-					}
-					throw error;
-				}
+				throw error;
 			}
 		}
 
