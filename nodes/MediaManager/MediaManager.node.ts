@@ -115,8 +115,9 @@ export class MediaManager implements INodeType {
 					loadOptionsMethod: 'getProcessingModes',
 					loadOptionsDependsOn: ['subcommand'],
 				},
-				default: '',
+				default: '', // Default to empty to force a selection
 				description: 'Choose how to process data. This appears only if the subcommand supports multiple modes.',
+				// This field is now automatically hidden by n8n if getProcessingModes returns an empty array.
 			},
 			{
 				displayName: 'Parameters',
@@ -154,6 +155,7 @@ export class MediaManager implements INodeType {
 				try {
 					const subcommands = await executeManagerCommand.call(this, 'list');
 					const modes = subcommands[subcommandName]?.modes;
+					// If no modes are defined, return an empty array. n8n will hide the field.
 					if (!modes || Object.keys(modes).length === 0) {
 						return [];
 					}
@@ -180,9 +182,13 @@ export class MediaManager implements INodeType {
 					const processingMode = this.getCurrentNodeParameter('processingMode') as string;
 
 					if (subcommandData.modes) {
-						const effectiveMode = subcommandData.modes[processingMode] ? processingMode : Object.keys(subcommandData.modes)[0];
-						pythonSchema = subcommandData.modes[effectiveMode]?.input_schema || [];
+						// If a mode is selected, use its schema.
+						if (processingMode && subcommandData.modes[processingMode]) {
+							pythonSchema = subcommandData.modes[processingMode].input_schema || [];
+						}
+						// If no mode is selected yet, return an empty schema to wait for user input.
 					} else {
+						// For simple nodes, use the top-level schema.
 						pythonSchema = subcommandData.input_schema || [];
 					}
 
@@ -210,17 +216,12 @@ export class MediaManager implements INodeType {
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
 
-		// The node will now process every incoming item, one by one.
-		// The logic to handle a "batch" (an array within a single item) is the responsibility
-		// of the Python subcommand itself.
 		for (let i = 0; i < items.length; i++) {
 			try {
 				const subcommand = this.getNodeParameter('subcommand', i) as string;
 				const processingMode = this.getNodeParameter('processingMode', i) as string;
 				const parameters = this.getNodeParameter('parameters', i) as { value: object };
 				
-				// Pass the selected mode and the current item's data to the Python script.
-				// The Python script will decide how to interpret this based on the mode.
 				const inputData = { ...parameters.value, '@item': items[i].json, '@mode': processingMode || 'single' };
 				
 				const result = await executeManagerCommand.call(this, subcommand, inputData);
