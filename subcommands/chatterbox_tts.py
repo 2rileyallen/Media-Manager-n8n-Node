@@ -8,7 +8,7 @@ import subprocess
 
 # 1. DEPENDENCIES
 REQUIRES = [
-    "chatterbox-tts==0.2.4",
+    "chatterbox-tts==0.1.2",
     "torchaudio",
     "torch",
     "ffmpeg-python==0.2.0",
