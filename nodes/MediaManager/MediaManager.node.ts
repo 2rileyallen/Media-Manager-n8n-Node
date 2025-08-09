@@ -116,12 +116,8 @@ export class MediaManager implements INodeType {
 					loadOptionsDependsOn: ['subcommand'],
 				},
 				default: '',
-				description: 'Choose how to process data.',
-				displayOptions: {
-					show: {
-						'@modesExist': [true],
-					},
-				},
+				description: 'Choose how to process the incoming data.',
+				// This field is now automatically hidden by n8n if getProcessingModes returns an empty array.
 			},
 			{
 				displayName: 'Parameters',
@@ -138,19 +134,6 @@ export class MediaManager implements INodeType {
 				},
 			},
 		],
-	};
-
-	// This hidden property is the key to the smart UI.
-	protected static hiddenProperties = {
-		'@modesExist': {
-			name: '@modesExist',
-			type: 'boolean',
-			default: false,
-			typeOptions: {
-				loadOptionsMethod: 'checkIfModesExist',
-				loadOptionsDependsOn: ['subcommand'],
-			},
-		},
 	};
 
 	methods = {
@@ -172,7 +155,10 @@ export class MediaManager implements INodeType {
 				try {
 					const subcommands = await executeManagerCommand.call(this, 'list');
 					const modes = subcommands[subcommandName]?.modes;
-					if (!modes || Object.keys(modes).length === 0) return [];
+					// If there is only one mode (or none), we don't need a dropdown.
+					if (!modes || Object.keys(modes).length <= 1) {
+						return [];
+					}
 					return Object.keys(modes).map(modeName => ({
 						name: modes[modeName].displayName || modeName,
 						value: modeName,
@@ -181,19 +167,7 @@ export class MediaManager implements INodeType {
 					return [];
 				}
 			},
-			// This new method updates the hidden '@modesExist' flag.
-			async checkIfModesExist(this: ILoadOptionsFunctions): Promise<boolean> {
-				const subcommandName = this.getCurrentNodeParameter('subcommand') as string;
-				if (!subcommandName) return false;
-				try {
-					const subcommands = await executeManagerCommand.call(this, 'list');
-					const modes = subcommands[subcommandName]?.modes;
-					return !!modes && Object.keys(modes).length > 0;
-				} catch (error) {
-					return false;
-				}
-			},
-		} as any, // Cast to 'any' to allow the helper method for the hidden property
+		},
 		resourceMapping: {
 			async getSubcommandSchema(this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
 				const subcommandName = this.getCurrentNodeParameter('subcommand') as string;
@@ -202,17 +176,21 @@ export class MediaManager implements INodeType {
 				try {
 					const subcommands = await executeManagerCommand.call(this, 'list');
 					const subcommandData = subcommands[subcommandName];
-					if (!subcommandData) return { fields: [] };
+					if (!subcommandData || !subcommandData.modes) return { fields: [] };
 
 					let pythonSchema: any[] = [];
 					const processingMode = this.getCurrentNodeParameter('processingMode') as string;
+					const modes = subcommandData.modes;
 
-					if (subcommandData.modes) {
-						if (processingMode && subcommandData.modes[processingMode]) {
-							pythonSchema = subcommandData.modes[processingMode].input_schema || [];
+					// If there are multiple modes, wait for the user to select one.
+					if (Object.keys(modes).length > 1) {
+						if (processingMode && modes[processingMode]) {
+							pythonSchema = modes[processingMode].input_schema || [];
 						}
 					} else {
-						pythonSchema = subcommandData.input_schema || [];
+						// If there is only one mode, use it automatically.
+						const defaultMode = Object.keys(modes)[0];
+						pythonSchema = modes[defaultMode]?.input_schema || [];
 					}
 
 					const n8nSchema: ResourceMapperField[] = pythonSchema.map((field: any) => ({
@@ -245,7 +223,18 @@ export class MediaManager implements INodeType {
 				const processingMode = this.getNodeParameter('processingMode', i) as string;
 				const parameters = this.getNodeParameter('parameters', i) as { value: object };
 				
-				const inputData = { ...parameters.value, '@item': items[i].json, '@mode': processingMode || 'single' };
+				const subcommands = await executeManagerCommand.call(this, 'list');
+				const subcommandData = subcommands[subcommand];
+				let effectiveMode = 'default';
+				if (subcommandData && subcommandData.modes) {
+					if (Object.keys(subcommandData.modes).length > 1) {
+						effectiveMode = processingMode;
+					} else {
+						effectiveMode = Object.keys(subcommandData.modes)[0];
+					}
+				}
+
+				const inputData = { ...parameters.value, '@item': items[i].json, '@mode': effectiveMode };
 				
 				const result = await executeManagerCommand.call(this, subcommand, inputData);
 				
