@@ -217,12 +217,17 @@ export class MediaManager implements INodeType {
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
 
+		// The node will now process every incoming item, one by one.
+		// The logic to handle a "batch" (an array within a single item) is the responsibility
+		// of the Python subcommand itself.
 		for (let i = 0; i < items.length; i++) {
 			try {
 				const subcommand = this.getNodeParameter('subcommand', i) as string;
 				const processingMode = this.getNodeParameter('processingMode', i) as string;
 				const parameters = this.getNodeParameter('parameters', i) as { value: object };
 				
+				// Pass the selected mode and the current item's data to the Python script.
+				// The Python script will decide how to interpret this based on the mode.
 				const inputData = { ...parameters.value, '@item': items[i].json, '@mode': processingMode || 'single' };
 				
 				const result = await executeManagerCommand.call(this, subcommand, inputData);
