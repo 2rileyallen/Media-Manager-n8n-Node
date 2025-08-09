@@ -79,7 +79,6 @@ def main(input_data, tool_path):
     from chatterbox.tts import ChatterboxTTS
     import ffmpeg
 
-    # FIX: Temporarily redirect stdout to stderr to capture noisy library loading messages
     original_stdout = sys.stdout
     sys.stdout = sys.stderr
 
@@ -91,18 +90,20 @@ def main(input_data, tool_path):
         mode = input_data.get("@mode", "single")
         
         if mode == "batch":
-            tts_script = input_data.get("@items", [])
-            # Get the output path from the UI parameters first.
+            # FIX: Intelligently unwrap the array of items if it's nested
+            raw_items = input_data.get("@items", [])
+            if len(raw_items) == 1 and isinstance(raw_items[0], dict) and 'data' in raw_items[0] and isinstance(raw_items[0]['data'], list):
+                tts_script = raw_items[0]['data']
+            else:
+                tts_script = raw_items
+
             output_file_path = input_data.get("output_file_path")
 
-            # FIX: If the output path is not in the UI params, try to get it from the first item
-            # in the input array. This makes the node more flexible.
             if not output_file_path and tts_script:
                 first_item = tts_script[0]
                 if isinstance(first_item, dict):
                     output_file_path = first_item.get("output_file_path")
             
-            # Intelligently build the speakers_dict from the items array
             speakers_dict = {}
             for i, item in enumerate(tts_script):
                 speaker_path = item.get("speaker_audio_path")
@@ -144,10 +145,7 @@ def main(input_data, tool_path):
             ffmpeg.input(audio_path).output(tmp_input_wav_path, acodec='pcm_s16le', ar=24000).run(overwrite_output=True, quiet=True)
             speaker_temp_wavs[speaker_id] = tmp_input_wav_path
         
-        # Load the Chatterbox model while stdout is redirected
         model = ChatterboxTTS.from_pretrained(device="cpu")
-
-        # Restore stdout so we can print the final JSON result
         sys.stdout = original_stdout
 
         temp_wav_files = []
@@ -173,7 +171,6 @@ def main(input_data, tool_path):
             ta.save(tmp_wav_path, wav, model.sr)
             temp_wav_files.append({"path": tmp_wav_path})
 
-        # Process output
         if temp_wav_files:
             list_file_path = tempfile.mktemp(suffix=".txt")
             temp_files_to_clean.append(list_file_path)
@@ -186,7 +183,6 @@ def main(input_data, tool_path):
             subprocess.run(ffmpeg_command, check=True, capture_output=True, text=True)
             generated_output_files.append(output_file_path)
         
-        # --- 3. Return Clean JSON Output ---
         result = {
             "status": "success",
             "message": "Audio processing completed successfully.",
@@ -195,13 +191,11 @@ def main(input_data, tool_path):
         print(json.dumps(result, indent=4))
 
     except Exception as e:
-        # Ensure stdout is restored in case of an error
         sys.stdout = original_stdout
         error_message = {"status": "error", "message": str(e)}
         print(json.dumps(error_message), file=sys.stderr)
         sys.exit(1)
     finally:
-        # Ensure stdout is always restored
         sys.stdout = original_stdout
         for file_path in temp_files_to_clean:
             if os.path.exists(file_path):
