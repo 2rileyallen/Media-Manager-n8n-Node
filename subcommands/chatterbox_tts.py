@@ -64,7 +64,7 @@ MODES = {
         "input_schema": [
             {
                 "name": "batch_script",
-                "displayName": "Batch Script",
+                "displayName": "Array of Items",
                 "type": "string",
                 "required": True,
                 "default": '{\n  "speakers": {\n    "speaker_1": "path/to/voice.wav"\n  },\n  "output_file_path": "path/to/output.m4a",\n  "script": [\n    {\n      "speaker": "speaker_1",\n      "text": "Your text here."\n    }\n  ]\n}',
@@ -91,9 +91,15 @@ def main(input_data, tool_path):
         
         if mode == "batch":
             # In batch mode, all data comes from a single JSON field.
-            batch_data = input_data.get("batch_script", {})
+            # The user is expected to provide a string that is a valid JSON object.
+            batch_script_str = input_data.get("batch_script", '{}')
+            try:
+                batch_data = json.loads(batch_script_str)
+            except json.JSONDecodeError:
+                raise TypeError("The 'Array of Items' field must contain a valid JSON object.")
+
             if not isinstance(batch_data, dict):
-                 raise TypeError("'Batch Script' must be a valid JSON object.")
+                 raise TypeError("'Array of Items' must be a valid JSON object.")
             
             tts_script = batch_data.get("script", [])
             speakers_dict = batch_data.get("speakers", {})
@@ -105,8 +111,8 @@ def main(input_data, tool_path):
         else: # single mode
             item_data = input_data.get("@item", {})
             text = item_data.get("text")
-            speaker_audio = input_data.get("speaker_audio_path")
-            output_file_path = input_data.get("output_file_path")
+            speaker_audio = item_data.get("speaker_audio_path")
+            output_file_path = item_data.get("output_file_path")
             exaggeration = input_data.get("exaggeration", 0.5)
             cfg_weight = input_data.get("cfg_weight", 0.5)
 
