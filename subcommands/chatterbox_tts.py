@@ -91,13 +91,16 @@ def main(input_data, tool_path):
         
         if mode == "batch":
             # In batch mode, all data comes from a single JSON field.
-            # The user is expected to provide a string that is a valid JSON object.
-            batch_script_str = input_data.get("batch_script", '{}')
-            try:
-                batch_data = json.loads(batch_script_str)
-            except json.JSONDecodeError:
-                raise TypeError("The 'Array of Items' field must contain a valid JSON object.")
+            batch_data = input_data.get("batch_script")
 
+            # FIX: Handle cases where the input is a string (from manual entry)
+            # or already an object/list (from an n8n expression).
+            if isinstance(batch_data, str):
+                try:
+                    batch_data = json.loads(batch_data)
+                except json.JSONDecodeError:
+                    raise TypeError("The 'Array of Items' field must contain a valid JSON string.")
+            
             if not isinstance(batch_data, dict):
                  raise TypeError("'Array of Items' must be a valid JSON object.")
             
@@ -131,7 +134,7 @@ def main(input_data, tool_path):
             if not os.path.exists(audio_path):
                 raise FileNotFoundError(f"Reference audio for '{speaker_id}' not found at: {audio_path}")
             
-            tmp_input_wav_path = tempfile.mktemp(suffix=".wav")
+            tmp_input_wav_path = tempfile.mktemp(suffix=f"_{speaker_id}.wav")
             temp_files_to_clean.append(tmp_input_wav_path)
             ffmpeg.input(audio_path).output(tmp_input_wav_path, acodec='pcm_s16le', ar=24000).run(overwrite_output=True, quiet=True)
             speaker_temp_wavs[speaker_id] = tmp_input_wav_path
