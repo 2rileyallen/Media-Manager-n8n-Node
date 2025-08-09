@@ -71,12 +71,7 @@ async function executeManagerCommand(
 				return reject(new NodeOperationError(this.getNode(), `Execution of '${command}' failed. Error: ${stderr}`));
 			}
 			try {
-				// Handle cases where the script might not return JSON (e.g., only prints to stderr)
-				if (stdout.trim() === '') {
-					// If stdout is empty but the exit code was 0, resolve with an empty object.
-					// This can happen if a script's only output is logging to stderr.
-					return resolve({});
-				}
+				if (stdout.trim() === '') return resolve({});
 				resolve(JSON.parse(stdout));
 			} catch (e) {
 				reject(new NodeOperationError(this.getNode(), `Python script did not return valid JSON for '${command}'. Output: ${stdout}`));
@@ -117,9 +112,8 @@ export class MediaManager implements INodeType {
 				name: 'processingMode',
 				type: 'options',
 				typeOptions: { loadOptionsMethod: 'getProcessingModes' },
-				default: 'single', // Default to 'single' mode
+				default: 'single',
 				description: 'Choose how to process data. This appears only if the subcommand supports multiple modes.',
-				// This field is now automatically hidden by n8n if getProcessingModes returns an empty array.
 			},
 			{
 				displayName: 'Parameters',
@@ -157,7 +151,6 @@ export class MediaManager implements INodeType {
 				try {
 					const subcommands = await executeManagerCommand.call(this, 'list');
 					const modes = subcommands[subcommandName]?.modes;
-					// If no modes are defined, return an empty array. n8n will hide the field.
 					if (!modes || Object.keys(modes).length === 0) {
 						return [];
 					}
@@ -183,13 +176,10 @@ export class MediaManager implements INodeType {
 					let pythonSchema: any[] = [];
 					const processingMode = this.getCurrentNodeParameter('processingMode') as string;
 
-					// Check if the subcommand uses modes.
 					if (subcommandData.modes) {
-						// Use the selected mode, or default to the first available mode if the selection is invalid.
 						const effectiveMode = subcommandData.modes[processingMode] ? processingMode : Object.keys(subcommandData.modes)[0];
 						pythonSchema = subcommandData.modes[effectiveMode]?.input_schema || [];
 					} else {
-						// Fallback to the top-level schema for simple nodes.
 						pythonSchema = subcommandData.input_schema || [];
 					}
 
@@ -218,22 +208,18 @@ export class MediaManager implements INodeType {
 		const returnData: INodeExecutionData[] = [];
 		const subcommand = this.getNodeParameter('subcommand', 0) as string;
 		
-		// To determine the mode, we must fetch the subcommand's metadata.
 		const subcommands = await executeManagerCommand.call(this, 'list');
 		const subcommandData = subcommands[subcommand];
 		const processingMode = this.getNodeParameter('processingMode', 0) as string;
 		
-		// A subcommand is in "batch" mode ONLY if it defines modes AND the user has selected 'batch'.
 		const isBatchMode = subcommandData && subcommandData.modes && processingMode === 'batch';
 
 		if (isBatchMode) {
-			// BATCH MODE: Process all items as a single unit.
 			try {
 				const allJsonData = items.map(item => item.json);
 				const parameters = this.getNodeParameter('parameters', 0) as { value: object };
 				const inputData = { ...parameters.value, '@items': allJsonData, '@mode': 'batch' };
 				const result = await executeManagerCommand.call(this, subcommand, inputData);
-				// Batch mode returns a single item.
 				returnData.push({ json: result });
 			} catch (error) {
 				if (this.continueOnFail()) {
@@ -243,10 +229,8 @@ export class MediaManager implements INodeType {
 				}
 			}
 		} else {
-			// SINGLE ITEM MODE: Loop through each item individually.
 			for (let i = 0; i < items.length; i++) {
 				try {
-					// In single mode, we get parameters for each item.
 					const parameters = this.getNodeParameter('parameters', i) as { value: object };
 					const inputData = { ...parameters.value, '@item': items[i].json, '@mode': 'single' };
 					const result = await executeManagerCommand.call(this, subcommand, inputData);
