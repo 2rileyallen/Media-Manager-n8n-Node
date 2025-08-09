@@ -49,11 +49,20 @@ def discover_subcommands():
                 mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(mod)
                 
-                # Metadata extraction
-                subcommands[name] = {
-                    "input_schema": getattr(mod, "INPUT_SCHEMA", []),
+                # --- FIX: New, smarter metadata extraction ---
+                subcommand_data = {
                     "requires": getattr(mod, "REQUIRES", [])
                 }
+                
+                # Check for the new MODES structure first.
+                if hasattr(mod, "MODES"):
+                    subcommand_data["modes"] = getattr(mod, "MODES")
+                # If MODES doesn't exist, fall back to the simple INPUT_SCHEMA.
+                elif hasattr(mod, "INPUT_SCHEMA"):
+                    subcommand_data["input_schema"] = getattr(mod, "INPUT_SCHEMA")
+                
+                subcommands[name] = subcommand_data
+
             except Exception as e:
                 print(f"Error loading subcommand '{name}': {e}", file=sys.stderr)
                 subcommands[name] = {"error": f"Error loading: {e}"}
