@@ -20,7 +20,7 @@ REQUIRES = [
 # based on the user's selection in the "Processing Mode" dropdown.
 MODES = {
     "single": {
-        "displayName": "Process Single Line",
+        "displayName": "Process Each Item Individually",
         "input_schema": [
             {
                 "name": "text",
@@ -60,12 +60,12 @@ MODES = {
         ]
     },
     "batch": {
-        "displayName": "Process Batch Script",
+        "displayName": "Array: Process Items Together",
         "input_schema": [
             {
                 "name": "batch_script",
                 "displayName": "Batch Script",
-                "type": "json",
+                "type": "string",
                 "required": True,
                 "default": '{\n  "speakers": {\n    "speaker_1": "path/to/voice.wav"\n  },\n  "output_file_path": "path/to/output.m4a",\n  "script": [\n    {\n      "speaker": "speaker_1",\n      "text": "Your text here."\n    }\n  ]\n}',
                 "description": "A single JSON object containing the full script, speakers, and output path."

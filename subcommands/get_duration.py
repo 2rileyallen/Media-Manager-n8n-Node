@@ -14,7 +14,7 @@ REQUIRES = [
 # it contains just one mode.
 MODES = {
     "default": {
-        "displayName": "Default",
+        "displayName": "Process Each Item Individually",
         "input_schema": [
             {
                 "name": "file_path",
