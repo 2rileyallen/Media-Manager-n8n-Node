@@ -79,6 +79,10 @@ def main(input_data, tool_path):
     from chatterbox.tts import ChatterboxTTS
     import ffmpeg
 
+    # FIX: Temporarily redirect stdout to stderr to capture noisy library loading messages
+    original_stdout = sys.stdout
+    sys.stdout = sys.stderr
+
     temp_files_to_clean = []
     generated_output_files = []
 
@@ -137,7 +141,11 @@ def main(input_data, tool_path):
             ffmpeg.input(audio_path).output(tmp_input_wav_path, acodec='pcm_s16le', ar=24000).run(overwrite_output=True, quiet=True)
             speaker_temp_wavs[speaker_id] = tmp_input_wav_path
         
+        # Load the Chatterbox model while stdout is redirected
         model = ChatterboxTTS.from_pretrained(device="cpu")
+
+        # Restore stdout so we can print the final JSON result
+        sys.stdout = original_stdout
 
         temp_wav_files = []
         for item in tts_script:
@@ -184,10 +192,14 @@ def main(input_data, tool_path):
         print(json.dumps(result, indent=4))
 
     except Exception as e:
+        # Ensure stdout is restored in case of an error
+        sys.stdout = original_stdout
         error_message = {"status": "error", "message": str(e)}
         print(json.dumps(error_message), file=sys.stderr)
         sys.exit(1)
     finally:
+        # Ensure stdout is always restored
+        sys.stdout = original_stdout
         for file_path in temp_files_to_clean:
             if os.path.exists(file_path):
                 try:
