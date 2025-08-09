@@ -115,9 +115,9 @@ export class MediaManager implements INodeType {
 					loadOptionsMethod: 'getProcessingModes',
 					loadOptionsDependsOn: ['subcommand'],
 				},
-				default: '',
+				default: '', // Default to empty to force a selection
+				required: true, // Make this required so parameters don't load until a mode is chosen
 				description: 'Choose how to process the incoming data.',
-				// This field is now automatically hidden by n8n if getProcessingModes returns an empty array.
 			},
 			{
 				displayName: 'Parameters',
@@ -149,16 +149,14 @@ export class MediaManager implements INodeType {
 					return [];
 				}
 			},
+			// This function now always returns the modes, regardless of how many there are.
 			async getProcessingModes(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 				const subcommandName = this.getCurrentNodeParameter('subcommand') as string;
 				if (!subcommandName) return [];
 				try {
 					const subcommands = await executeManagerCommand.call(this, 'list');
 					const modes = subcommands[subcommandName]?.modes;
-					// If there is only one mode (or none), we don't need a dropdown.
-					if (!modes || Object.keys(modes).length <= 1) {
-						return [];
-					}
+					if (!modes) return [];
 					return Object.keys(modes).map(modeName => ({
 						name: modes[modeName].displayName || modeName,
 						value: modeName,
@@ -171,27 +169,17 @@ export class MediaManager implements INodeType {
 		resourceMapping: {
 			async getSubcommandSchema(this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
 				const subcommandName = this.getCurrentNodeParameter('subcommand') as string;
-				if (!subcommandName) return { fields: [] };
+				const processingMode = this.getCurrentNodeParameter('processingMode') as string;
+
+				// Only load the schema if both a subcommand AND a processing mode have been selected.
+				if (!subcommandName || !processingMode) return { fields: [] };
 
 				try {
 					const subcommands = await executeManagerCommand.call(this, 'list');
 					const subcommandData = subcommands[subcommandName];
 					if (!subcommandData || !subcommandData.modes) return { fields: [] };
 
-					let pythonSchema: any[] = [];
-					const processingMode = this.getCurrentNodeParameter('processingMode') as string;
-					const modes = subcommandData.modes;
-
-					// If there are multiple modes, wait for the user to select one.
-					if (Object.keys(modes).length > 1) {
-						if (processingMode && modes[processingMode]) {
-							pythonSchema = modes[processingMode].input_schema || [];
-						}
-					} else {
-						// If there is only one mode, use it automatically.
-						const defaultMode = Object.keys(modes)[0];
-						pythonSchema = modes[defaultMode]?.input_schema || [];
-					}
+					const pythonSchema = subcommandData.modes[processingMode]?.input_schema || [];
 
 					const n8nSchema: ResourceMapperField[] = pythonSchema.map((field: any) => ({
 						id: field.name,
@@ -223,18 +211,11 @@ export class MediaManager implements INodeType {
 				const processingMode = this.getNodeParameter('processingMode', i) as string;
 				const parameters = this.getNodeParameter('parameters', i) as { value: object };
 				
-				const subcommands = await executeManagerCommand.call(this, 'list');
-				const subcommandData = subcommands[subcommand];
-				let effectiveMode = 'default';
-				if (subcommandData && subcommandData.modes) {
-					if (Object.keys(subcommandData.modes).length > 1) {
-						effectiveMode = processingMode;
-					} else {
-						effectiveMode = Object.keys(subcommandData.modes)[0];
-					}
+				if (!processingMode) {
+					throw new NodeOperationError(this.getNode(), 'Please select a Processing Mode before executing the workflow.');
 				}
 
-				const inputData = { ...parameters.value, '@item': items[i].json, '@mode': effectiveMode };
+				const inputData = { ...parameters.value, '@item': items[i].json, '@mode': processingMode };
 				
 				const result = await executeManagerCommand.call(this, subcommand, inputData);
 				
