@@ -92,7 +92,7 @@ export class MediaManager implements INodeType {
     description: INodeTypeDescription = {
         displayName: 'Media Manager',
         name: 'mediaManager',
-        icon: 'file:icons/business-icon.svg', 
+        icon: 'file:icons/business-icon.svg',
         group: ['transform'],
         version: 1,
         description: 'Dynamically runs Python subcommands from the media-manager project.',
@@ -202,23 +202,31 @@ export class MediaManager implements INodeType {
         const items = this.getInputData();
         const subcommand = this.getNodeParameter('subcommand', 0) as string;
         const processingMode = this.getNodeParameter('processingMode', 0) as string;
-        const parameters = this.getNodeParameter('parameters', 0) as { value: object };
 
         if (!subcommand) {
             throw new NodeOperationError(this.getNode(), 'Please select a Subcommand before executing.');
         }
 
-        // --- BATCH PROCESSING LOGIC ---
+        // --- BATCH PROCESSING LOGIC (CORRECTED) ---
         if (processingMode === 'batch') {
             if (items.length === 0) {
-                return [[]]; 
+                return [[]];
             }
             try {
-                const allItemsJson = items.map(item => item.json);
-                const inputData = { ...parameters.value, '@items': allItemsJson };
-                
+                // 1. Create a new array containing ONLY the mapped parameters for each item.
+                const mappedItems = items.map((item, index) => {
+                    // For each item, get its specific parameters from the UI mapping.
+                    const itemParameters = this.getNodeParameter('parameters', index) as { value: object };
+                    return itemParameters.value;
+                });
+
+                // 2. The input data is now a clean array of mapped parameters.
+                const inputData = { '@items': mappedItems };
+
                 const result = await executeManagerCommand.call(this, subcommand, inputData);
-                
+
+                // Note: The output handling here assumes the Python script returns a single
+                // JSON object that applies to all items. This might need adjustment later.
                 const newItem: INodeExecutionData = {
                     json: { ...items[0].json, ...result },
                     pairedItem: { item: 0 },
@@ -235,16 +243,18 @@ export class MediaManager implements INodeType {
             }
         }
 
-        // --- SINGLE ITEM PROCESSING LOGIC ---
+        // --- SINGLE ITEM PROCESSING LOGIC (CORRECTED) ---
         else {
             const returnData: INodeExecutionData[] = [];
             for (let i = 0; i < items.length; i++) {
                 try {
+                    // This is the correct fix!
                     const itemParameters = this.getNodeParameter('parameters', i) as { value: object };
-                    const inputData = { ...itemParameters.value, '@item': items[i].json };
-                    
+                    const inputData = { '@item': itemParameters.value };
+
                     const result = await executeManagerCommand.call(this, subcommand, inputData);
-                    
+
+                    // Merge the result with the original item's data.
                     const newItem: INodeExecutionData = {
                         json: { ...items[i].json, ...result },
                         pairedItem: { item: i },
