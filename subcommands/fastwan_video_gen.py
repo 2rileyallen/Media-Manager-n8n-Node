@@ -3,6 +3,7 @@ import os
 import json
 import re
 import time
+import logging
 
 # --- Required Metadata ---
 # This section defines the contract with the Media Manager framework.
@@ -107,6 +108,10 @@ def main(input_data, tool_path):
     """
     Main function to process input and generate videos using the FastVideo library.
     """
+    # Suppress INFO and WARNING logs from libraries to keep stdout clean for JSON.
+    # This must be done before importing modules that use the logging system.
+    logging.basicConfig(level=logging.ERROR)
+
     # CRITICAL: Import heavyweight dependencies here, not at the top level.
     from fastvideo import VideoGenerator
 
