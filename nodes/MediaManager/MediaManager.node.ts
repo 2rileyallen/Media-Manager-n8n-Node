@@ -115,7 +115,6 @@ export class MediaManager implements INodeType {
                 displayName: 'Processing Mode',
                 name: 'processingMode',
                 type: 'options',
-                // UPDATED: This is now a static list, making the node's behavior explicit.
                 options: [
                     {
                         name: 'Process Each Item Individually',
@@ -138,7 +137,6 @@ export class MediaManager implements INodeType {
                 type: 'resourceMapper',
                 default: { mappingMode: 'defineBelow', value: null },
                 typeOptions: {
-                    // UPDATED: The schema no longer depends on the processing mode.
                     loadOptionsDependsOn: ['subcommand'],
                     resourceMapper: {
                         resourceMapperMethod: 'getSubcommandSchema',
@@ -154,7 +152,8 @@ export class MediaManager implements INodeType {
         loadOptions: {
             async getSubcommands(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
                 try {
-                    await executeManagerCommand.call(this, 'update');
+                    // FIX: Removed the slow 'update' command from the UI loading process.
+                    // The user should run 'python manager.py update' from the CLI when adding/changing tools.
                     const subcommands = await executeManagerCommand.call(this, 'list');
                     return Object.keys(subcommands)
                         .filter(name => !subcommands[name].error)
@@ -164,20 +163,17 @@ export class MediaManager implements INodeType {
                     return [];
                 }
             },
-            // REMOVED: getProcessingModes is no longer needed as the options are static.
         },
         resourceMapping: {
             async getSubcommandSchema(this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
                 const subcommandName = this.getCurrentNodeParameter('subcommand') as string;
 
-                // Only load the schema if a subcommand has been selected.
                 if (!subcommandName) return { fields: [] };
 
                 try {
                     const subcommands = await executeManagerCommand.call(this, 'list');
                     const subcommandData = subcommands[subcommandName];
                     
-                    // UPDATED: Directly access the simplified 'input_schema' from the subcommand data.
                     const pythonSchema = subcommandData?.input_schema || [];
 
                     const n8nSchema: ResourceMapperField[] = pythonSchema.map((field: any) => ({
@@ -194,6 +190,8 @@ export class MediaManager implements INodeType {
                     
                     return { fields: n8nSchema };
                 } catch (error) {
+                    // Add console logging to help debug if this fails in the future
+                    console.error(`Failed to get schema for ${subcommandName}:`, error);
                     return { fields: [] };
                 }
             },
@@ -213,18 +211,14 @@ export class MediaManager implements INodeType {
         // --- BATCH PROCESSING LOGIC ---
         if (processingMode === 'batch') {
             if (items.length === 0) {
-                return [[]]; // Return empty output if no items are input
+                return [[]]; 
             }
             try {
-                // Collect all incoming items into a single array
                 const allItemsJson = items.map(item => item.json);
-                // Prepare a single payload for the Python script with an '@items' key
                 const inputData = { ...parameters.value, '@items': allItemsJson };
                 
                 const result = await executeManagerCommand.call(this, subcommand, inputData);
                 
-                // The Python script returns one result for the whole batch.
-                // We'll merge this result with the JSON of the *first* incoming item.
                 const newItem: INodeExecutionData = {
                     json: { ...items[0].json, ...result },
                     pairedItem: { item: 0 },
@@ -246,9 +240,7 @@ export class MediaManager implements INodeType {
             const returnData: INodeExecutionData[] = [];
             for (let i = 0; i < items.length; i++) {
                 try {
-                    // For single mode, the parameters might be different for each item
                     const itemParameters = this.getNodeParameter('parameters', i) as { value: object };
-                    // Prepare the payload with an '@item' key
                     const inputData = { ...itemParameters.value, '@item': items[i].json };
                     
                     const result = await executeManagerCommand.call(this, subcommand, inputData);
