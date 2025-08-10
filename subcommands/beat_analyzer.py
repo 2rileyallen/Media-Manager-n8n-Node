@@ -35,12 +35,6 @@ INPUT_SCHEMA = [
         "type": "number",
         "default": 0.1,
         "description": "A value between 0.0 and 1.0 to smooth the beat analysis."
-    },
-    {
-        "name": "_note",
-        "displayName": "Note: This tool processes each audio file individually, regardless of the 'Processing Mode' selected.",
-        "type": "notice",
-        "default": ""
     }
 ]
 

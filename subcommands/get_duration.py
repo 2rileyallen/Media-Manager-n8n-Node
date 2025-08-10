@@ -30,12 +30,6 @@ INPUT_SCHEMA = [
         ],
         "default": "seconds",
         "description": "The desired format for the output duration."
-    },
-    {
-        "name": "_note",
-        "displayName": "Note",
-        "type": "notice",
-        "default": "This tool processes each media file individually, regardless of the 'Processing Mode' selected."
     }
 ]
 

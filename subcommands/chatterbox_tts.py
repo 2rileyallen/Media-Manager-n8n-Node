@@ -56,9 +56,10 @@ INPUT_SCHEMA = [
     },
     {
     "name": "_chatterbox_note",
-    "displayName": "Note: In batch mode, the 'Output File Path' from the first item will be used for the final combined audio. If a directory is provided, a default filename will be used.",
+    "displayName": "Note",
     "type": "notice",
-    "default": ""
+    "default": "",
+    "description": "In batch mode, the 'Output File Path' from the first item will be used for the final combined audio. If a directory is provided, a default filename will be used."
     }
 ]
 
