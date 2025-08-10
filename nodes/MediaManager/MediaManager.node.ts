@@ -152,12 +152,14 @@ export class MediaManager implements INodeType {
         loadOptions: {
             async getSubcommands(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
                 try {
+                    // FIX: Removed the slow 'update' command from the UI loading process.
                     // The user should run 'python manager.py update' from the CLI when adding/changing tools.
                     const subcommands = await executeManagerCommand.call(this, 'list');
                     return Object.keys(subcommands)
                         .filter(name => !subcommands[name].error)
                         .map(name => ({ name, value: name }));
                 } catch (error) {
+                    // This is expected if Python/venv is not set up yet. Return empty.
                     return [];
                 }
             },
@@ -165,22 +167,14 @@ export class MediaManager implements INodeType {
         resourceMapping: {
             async getSubcommandSchema(this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
                 const subcommandName = this.getCurrentNodeParameter('subcommand') as string;
-                console.log(`[MediaManager] Attempting to load schema for subcommand: '${subcommandName}'`);
 
-                if (!subcommandName) {
-                    console.log('[MediaManager] No subcommand selected. Returning empty schema.');
-                    return { fields: [] };
-                }
+                if (!subcommandName) return { fields: [] };
 
                 try {
                     const subcommands = await executeManagerCommand.call(this, 'list');
-                    console.log('[MediaManager] Received data from manager.py:', JSON.stringify(subcommands, null, 2));
-
                     const subcommandData = subcommands[subcommandName];
-                    console.log(`[MediaManager] Data for '${subcommandName}':`, JSON.stringify(subcommandData, null, 2));
                     
                     const pythonSchema = subcommandData?.input_schema || [];
-                    console.log(`[MediaManager] Extracted Python schema:`, JSON.stringify(pythonSchema, null, 2));
 
                     const n8nSchema: ResourceMapperField[] = pythonSchema.map((field: any) => ({
                         id: field.name,
@@ -194,10 +188,10 @@ export class MediaManager implements INodeType {
                         default: field.default,
                     }));
                     
-                    console.log('[MediaManager] Final n8n schema:', JSON.stringify(n8nSchema, null, 2));
                     return { fields: n8nSchema };
                 } catch (error) {
-                    console.error(`[MediaManager] Failed to get schema for ${subcommandName}:`, error);
+                    // Add console logging to help debug if this fails in the future
+                    console.error(`Failed to get schema for ${subcommandName}:`, error);
                     return { fields: [] };
                 }
             },
