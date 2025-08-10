@@ -10,34 +10,34 @@ REQUIRES = [
 ]
 
 # 2. N8N UI SCHEMA
-# All subcommands now use a MODES dictionary. For simple tools,
-# it contains just one mode.
-MODES = {
-    "default": {
-        "displayName": "Process Each Item Individually",
-        "input_schema": [
-            {
-                "name": "file_path",
-                "displayName": "Media File Path",
-                "type": "string",
-                "required": True,
-                "description": "The absolute path to the audio or video file."
-            },
-            {
-                "name": "format",
-                "displayName": "Output Format",
-                "type": "options",
-                "options": [
-                    { "name": "Seconds", "value": "seconds" },
-                    { "name": "Minutes", "value": "minutes" },
-                    { "name": "Hours", "value": "hours" }
-                ],
-                "default": "seconds",
-                "description": "The desired format for the output duration."
-            }
-        ]
+# UPDATED: The subcommand now uses a single INPUT_SCHEMA list.
+INPUT_SCHEMA = [
+    {
+        "name": "file_path",
+        "displayName": "Media File Path",
+        "type": "string",
+        "required": True,
+        "description": "The absolute path to the audio or video file."
+    },
+    {
+        "name": "format",
+        "displayName": "Output Format",
+        "type": "options",
+        "options": [
+            { "name": "Seconds", "value": "seconds" },
+            { "name": "Minutes", "value": "minutes" },
+            { "name": "Hours", "value": "hours" }
+        ],
+        "default": "seconds",
+        "description": "The desired format for the output duration."
+    },
+    {
+        "name": "_note",
+        "displayName": "Note: This tool processes each media file individually, \nregardless of the 'Processing Mode' selected.",
+        "type": "notice",
+        "default": ""
     }
-}
+]
 
 # --- Helper Functions ---
 
@@ -50,6 +50,7 @@ def format_duration(seconds, format_type="seconds"):
     return f"{int(total_minutes)}m {seconds:.2f}s"
 
 def get_file_duration(file_path):
+    # CORRECT: Import required modules inside the function that uses them.
     import ffmpeg
     try:
         probe = ffmpeg.probe(file_path)
@@ -63,8 +64,11 @@ def get_file_duration(file_path):
 
 def main(input_data, tool_path):
     try:
-        # For single-mode tools, the parameters are nested under the '@item' key.
+        # This tool only processes single items, so we always look for the '@item' key.
         item_data = input_data.get("@item", {})
+        if not item_data:
+             raise ValueError("Input data is missing the '@item' key. This tool processes items individually.")
+
         file_path = item_data.get("file_path")
         format_type = item_data.get("format", "seconds")
 

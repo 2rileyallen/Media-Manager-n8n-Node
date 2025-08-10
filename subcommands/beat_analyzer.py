@@ -12,36 +12,37 @@ REQUIRES = [
 ]
 
 # 2. N8N UI SCHEMA
-# All subcommands now use a MODES dictionary. For simple tools,
-# it contains just one mode.
-MODES = {
-    "default": {
-        "displayName": "Process Each Item Individually",
-        "input_schema": [
-            {
-                "name": "audio_file",
-                "displayName": "Audio File Path",
-                "type": "string",
-                "required": True,
-                "description": "The absolute path to the audio file to analyze."
-            },
-            {
-                "name": "beats_per_second",
-                "displayName": "Beats Per Second",
-                "type": "number",
-                "default": 2.0,
-                "description": "The frequency of beats to analyze per second."
-            },
-            {
-                "name": "smoothing_factor",
-                "displayName": "Smoothing Factor",
-                "type": "number",
-                "default": 0.1,
-                "description": "A value between 0.0 and 1.0 to smooth the beat analysis."
-            }
-        ]
+# UPDATED: The subcommand now uses a single INPUT_SCHEMA list.
+# The n8n node handles whether it's processed individually or in a batch.
+INPUT_SCHEMA = [
+    {
+        "name": "audio_file",
+        "displayName": "Audio File Path",
+        "type": "string",
+        "required": True,
+        "description": "The absolute path to the audio file to analyze."
+    },
+    {
+        "name": "beats_per_second",
+        "displayName": "Beats Per Second",
+        "type": "number",
+        "default": 2.0,
+        "description": "The frequency of beats to analyze per second."
+    },
+    {
+        "name": "smoothing_factor",
+        "displayName": "Smoothing Factor",
+        "type": "number",
+        "default": 0.1,
+        "description": "A value between 0.0 and 1.0 to smooth the beat analysis."
+    },
+    {
+        "name": "_note",
+        "displayName": "Note: This tool processes each audio file individually, regardless of the 'Processing Mode' selected.",
+        "type": "notice",
+        "default": ""
     }
-}
+]
 
 # --- Helper Functions ---
 
@@ -91,8 +92,9 @@ def analyze_beats(audio_file, beats_per_second, smoothing_factor=0.1):
             beat_strengths.append(window_max)
         
         smoothed_strengths = np.array(beat_strengths)
-        for i in range(1, len(beat_strengths)):
-            smoothed_strengths[i] = (1 - smoothing_factor) * beat_strengths[i] + smoothing_factor * smoothed_strengths[i-1]
+        if len(beat_strengths) > 1:
+            for i in range(1, len(beat_strengths)):
+                smoothed_strengths[i] = (1 - smoothing_factor) * beat_strengths[i] + smoothing_factor * smoothed_strengths[i-1]
         
         if len(smoothed_strengths) > 0:
             min_val, max_val = np.min(smoothed_strengths), np.max(smoothed_strengths)
@@ -117,8 +119,11 @@ def main(input_data, tool_path):
     """
     try:
         # --- 1. Access Input Data ---
-        # For single-mode tools, the parameters are nested under the '@item' key.
+        # This tool only processes single items, so we always look for the '@item' key.
         item_data = input_data.get("@item", {})
+        if not item_data:
+             raise ValueError("Input data is missing the '@item' key. This tool processes items individually.")
+
         audio_file = item_data.get("audio_file")
         beats_per_second = item_data.get("beats_per_second", 2.0)
         smoothing = item_data.get("smoothing_factor", 0.1)
