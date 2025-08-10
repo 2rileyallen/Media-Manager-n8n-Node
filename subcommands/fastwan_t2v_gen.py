@@ -55,7 +55,7 @@ INPUT_SCHEMA = [
 #
 # --- Windows ---
 # cd C:\path\to\your\Media-Manager-n8n-Node
-# call subcommands_envs\fastwan_video_gen\Scripts\activate
+# call subcommands_envs\fastwan_t2v_gen\Scripts\activate
 # pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 #
 # --- Linux/macOS ---
