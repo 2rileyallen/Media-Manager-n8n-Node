@@ -49,10 +49,10 @@ def discover_subcommands():
                 mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(mod)
                 
-                # FIX: This now ONLY looks for a MODES dictionary, enforcing the new standard.
+                # UPDATED: This now looks for a single INPUT_SCHEMA list, enforcing our new, simpler standard.
                 subcommands[name] = {
                     "requires": getattr(mod, "REQUIRES", []),
-                    "modes": getattr(mod, "MODES", {}) # Default to empty dict if not found
+                    "input_schema": getattr(mod, "INPUT_SCHEMA", []) # Default to empty list if not found
                 }
 
             except Exception as e:
@@ -64,7 +64,6 @@ def discover_subcommands():
 def install_dependencies(env_path, packages):
     """
     Installs a list of packages into a specific virtual environment.
-    For stability, it's recommended that packages are pinned (e.g., 'requests==2.28.1').
     """
     if not packages:
         return True
@@ -73,9 +72,8 @@ def install_dependencies(env_path, packages):
     pip_exe = get_pip_executable(env_path)
     
     try:
-        # Using --upgrade ensures we get the specified version
         command = [pip_exe, "install", "--upgrade"] + list(packages)
-        result = subprocess.run(command, check=True, capture_output=True, text=True, encoding='utf-8')
+        subprocess.run(command, check=True, capture_output=True, text=True, encoding='utf-8')
         print(f"  + Dependencies are up to date for '{os.path.basename(env_path)}'.", file=sys.stderr)
         return True
     except subprocess.CalledProcessError as e:
@@ -93,7 +91,6 @@ def create_environment(env_path):
     
     print(f"Creating new virtual environment at '{env_path}'...", file=sys.stderr)
     try:
-        # Use the same Python that is running this manager script
         subprocess.run([sys.executable, "-m", "venv", env_path], check=True, capture_output=True, text=True)
         print("  + Environment created successfully.", file=sys.stderr)
         return True
@@ -105,7 +102,6 @@ def create_environment(env_path):
 def cleanup_orphaned_files(subcommand_names):
     """
     Removes environment and tool folders for subcommands that no longer exist.
-    This is the core of the self-cleaning mechanism.
     """
     print("Checking for orphaned files and environments...", file=sys.stderr)
     cleaned_count = 0
@@ -134,7 +130,6 @@ def cleanup_orphaned_files(subcommand_names):
 def run_subcommand(name, input_data):
     """
     Prepares the environment for and executes a specific subcommand.
-    This is the main entry point for running a tool from n8n or the CLI.
     """
     subcommands = discover_subcommands()
     if name not in subcommands or "error" in subcommands[name]:
@@ -144,35 +139,27 @@ def run_subcommand(name, input_data):
     subcommand_metadata = subcommands[name]
     requires = subcommand_metadata.get("requires", [])
     
-    # Determine the correct python executable to use
     if requires:
-        # This subcommand needs its own isolated environment
         env_path = os.path.join(SUBCOMMAND_ENVS_DIR, name)
         if not create_environment(env_path) or not install_dependencies(env_path, requires):
-            return # Stop if environment setup fails
+            return 
         python_exe = get_python_executable(env_path)
     else:
-        # No special requirements, use the same python as the manager
         python_exe = sys.executable
 
-    # --- Tool Path Management ---
-    # Provide a dedicated, persistent storage folder for the subcommand
     subcommand_tool_path = os.path.join(SUBCOMMAND_TOOLS_DIR, name)
     if not os.path.exists(subcommand_tool_path):
         os.makedirs(subcommand_tool_path)
 
-    # Pass the tool path to the subcommand via an environment variable.
     execution_env = os.environ.copy()
     execution_env["SUBCOMMAND_TOOL_PATH"] = subcommand_tool_path
     
-    # Prepare for execution
     subcommand_script_path = os.path.join(SUBCOMMANDS_DIR, f"{name}.py")
     
     print(f"\n--- Running Subcommand: {name} ---", file=sys.stderr)
     try:
-        # FIX: Use Popen to correctly stream data to the subcommand via stdin
         process = subprocess.Popen(
-            [python_exe, subcommand_script_path], # The command to run
+            [python_exe, subcommand_script_path],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -180,7 +167,6 @@ def run_subcommand(name, input_data):
             encoding='utf-8',
             env=execution_env
         )
-        # Send the JSON data and get the output
         stdout, stderr = process.communicate(input=json.dumps(input_data))
         
         # For n8n, clean JSON output must go to stdout
@@ -212,7 +198,6 @@ def main():
         print("\n--- Running Full System Update and Cleanup ---", file=sys.stderr)
         subcommands = discover_subcommands()
         cleanup_orphaned_files(subcommands.keys())
-        # Also run installation for all subcommands
         for name, data in subcommands.items():
             if data.get("requires"):
                 env_path = os.path.join(SUBCOMMAND_ENVS_DIR, name)
@@ -225,8 +210,6 @@ def main():
         subcommand_name = command
         input_data = {}
 
-        # Read the JSON data from standard input (stdin)
-        # This is more robust and avoids command line length limits.
         try:
             stdin_content = sys.stdin.read()
             if stdin_content:

@@ -63,18 +63,14 @@ Executes a subcommand by piping JSON data to it. This is the recommended testing
 4. Subcommand Authoring Guide (The Contract)
 To create a new tool, create a new .py file in the subcommands/ directory. This file must adhere to the following contract to be recognized and run by the manager.
 
-The New Standard: The MODES Dictionary
-CRITICAL: Every subcommand must define a MODES dictionary. This dictionary is the single source of truth for the n8n user interface.
-
-For simple tools that only do one thing, the MODES dictionary will contain a single entry with the key "default".
-
-For complex tools that have multiple functions (like single vs. batch processing), the MODES dictionary will contain multiple entries with descriptive keys (e.g., "single", "batch").
+The New Standard: A Single INPUT_SCHEMA
+CRITICAL: Every subcommand must define a single INPUT_SCHEMA list. This list is the single source of truth for the n8n user interface fields. The n8n node itself provides a "Processing Mode" dropdown that controls how the data is sent to your script (single item vs. batch of items). Your script's logic should handle both cases.
 
 The Most Important Rule
 CRITICAL: Do not import packages from the REQUIRES list at the top-level of your file. Instead, import them inside the functions that need them. This allows the manager to read your REQUIRES list before the import is attempted.
 
-Subcommand Template (Simple, Single-Mode Tool)
-This is the required boilerplate for a simple tool that has only one function.
+Subcommand Template
+This is the required boilerplate for any new subcommand.
 
 import sys
 import os
@@ -86,32 +82,44 @@ import json
 REQUIRES = ["ffmpeg-python==0.2.0"]
 
 # 2. N8N UI SCHEMA
-# For simple tools, define a single "default" mode.
-MODES = {
-    "default": {
-        "displayName": "Default",
-        "input_schema": [
-            {
-                "name": "file_path",
-                "displayName": "Media File Path",
-                "type": "string",
-                "required": True,
-                "description": "The absolute path to the audio or video file."
-            }
-        ]
+INPUT_SCHEMA = [
+    {
+        "name": "file_path",
+        "displayName": "Media File Path",
+        "type": "string",
+        "required": True,
+        "description": "The absolute path to the audio or video file."
+    },
+    # Add a helpful note to the UI using the 'notice' type.
+    {
+        "name": "_note",
+        "displayName": "Note: This is an example notice that will appear in the n8n UI.",
+        "type": "notice",
+        "default": ""
     }
-}
+]
 
 # --- Main Execution Logic ---
 def main(input_data, tool_path):
     try:
-        # For single-mode tools, parameters are nested under the '@item' key.
-        item_data = input_data.get("@item", {})
-        file_path = item_data.get("file_path")
-        
+        # The n8n node controls the delivery. Your script just checks what it received.
+        if "@items" in input_data:
+            # BATCH MODE: A list of items was received.
+            script_items = input_data.get("@items", [])
+            # ... logic to loop through script_items ...
+        elif "@item" in input_data:
+            # SINGLE MODE: A single item was received.
+            script_items = [input_data.get("@item", {})]
+            # ... logic to process the single item ...
+        else:
+            raise ValueError("Invalid input format. Expected '@item' or '@items' key.")
+            
+        # Example of accessing a parameter from the first item
+        first_item_path = script_items[0].get("file_path") if script_items else None
+
         # ... your logic here ...
 
-        result = {"status": "success", "processed_file": file_path}
+        result = {"status": "success", "processed_file": first_item_path}
         print(json.dumps(result, indent=4))
 
     except Exception as e:
@@ -125,7 +133,9 @@ if __name__ == "__main__":
     if stdin_content:
         try:
             data = json.loads(stdin_content)
-            main(data, os.environ.get("SUBCOMMAND_TOOL_PATH", ""))
+            # The manager provides a dedicated folder for the tool to use
+            tool_folder = os.environ.get("SUBCOMMAND_TOOL_PATH", "")
+            main(data, tool_folder)
         except json.JSONDecodeError:
             print(json.dumps({"status": "error", "message": "Invalid JSON input"}), file=sys.stderr)
             sys.exit(1)
@@ -142,19 +152,15 @@ Understand the Goal: Clarify the user's request. What is the input? What is the 
 
 Identify Dependencies: Determine which third-party Python libraries are needed. Find their latest stable versions on PyPI for version pinning (e.g., requests==2.28.1).
 
-Define the UI: Create the MODES dictionary.
-
-If the tool only has one function, create a single entry named "default".
-
-If the tool has multiple functions, create multiple entries with descriptive names (e.g., "single", "batch").
-
-For each mode, define its input_schema to generate the n8n UI fields.
+Define the UI: Create a single INPUT_SCHEMA list to generate the n8n UI fields. You can add a notice field at the end to provide helpful context to the user.
 
 Write the Logic: Implement the core functionality within the main(input_data, tool_path) function.
 
-Check for the @mode key in input_data to determine which mode was selected by the user.
+Your script must be able to handle both single and batch processing.
 
-For single-item processing, get the user's parameters from the input_data.get("@item", {}) dictionary.
+Check for the @items key in input_data to handle a batch of items.
+
+Check for the @item key to handle a single item.
 
 Produce JSON Output: Ensure the only output to stdout is a single, clean JSON string representing the result.
 

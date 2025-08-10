@@ -1,14 +1,14 @@
 import {
-	IExecuteFunctions,
-	INodeType,
-	INodeTypeDescription,
-	ILoadOptionsFunctions,
-	INodeExecutionData,
-	NodeOperationError,
-	INodePropertyOptions,
-	ResourceMapperField,
-	ResourceMapperFields,
-	NodeConnectionType,
+    IExecuteFunctions,
+    INodeType,
+    INodeTypeDescription,
+    ILoadOptionsFunctions,
+    INodeExecutionData,
+    NodeOperationError,
+    INodePropertyOptions,
+    ResourceMapperField,
+    ResourceMapperFields,
+    NodeConnectionType,
 } from 'n8n-workflow';
 
 import { promisify } from 'util';
@@ -20,221 +20,255 @@ const execAsync = promisify(exec);
 // --- Helper Functions ---
 
 function getErrorMessage(error: unknown): string {
-	if (error instanceof Error) {
-		const execError = error as Error & { stderr?: string };
-		return execError.stderr || execError.message;
-	}
-	if (typeof error === 'object' && error !== null && 'message' in error && typeof (error as any).message === 'string') {
-		return (error as any).message;
-	}
-	return String(error);
+    if (error instanceof Error) {
+        const execError = error as Error & { stderr?: string };
+        return execError.stderr || execError.message;
+    }
+    if (typeof error === 'object' && error !== null && 'message' in error && typeof (error as any).message === 'string') {
+        return (error as any).message;
+    }
+    return String(error);
 }
 
 async function executeManagerCommand(
-	this: IExecuteFunctions | ILoadOptionsFunctions,
-	command: string,
-	inputData?: object,
+    this: IExecuteFunctions | ILoadOptionsFunctions,
+    command: string,
+    inputData?: object,
 ): Promise<any> {
-	const currentNodeDir = __dirname;
-	const nodeProjectRoot = path.join(currentNodeDir, '..', '..', '..');
-	const projectPath = nodeProjectRoot;
-	const managerPath = path.join(projectPath, 'manager.py');
-	const pythonExecutable = process.platform === 'win32' ? 'python.exe' : 'python';
-	const venvSubfolder = process.platform === 'win32' ? 'Scripts' : 'bin';
-	const pythonPath = path.join(projectPath, 'venv', venvSubfolder, pythonExecutable);
+    const currentNodeDir = __dirname;
+    // This path navigates from the dist/nodes/MediaManager folder up to the project root
+    const nodeProjectRoot = path.join(currentNodeDir, '..', '..', '..');
+    const projectPath = nodeProjectRoot;
+    const managerPath = path.join(projectPath, 'manager.py');
+    const pythonExecutable = process.platform === 'win32' ? 'python.exe' : 'python';
+    const venvSubfolder = process.platform === 'win32' ? 'Scripts' : 'bin';
+    const pythonPath = path.join(projectPath, 'venv', venvSubfolder, pythonExecutable);
 
-	if (!inputData) {
-		const fullCommand = `"${pythonPath}" "${managerPath}" ${command}`;
-		try {
-			const { stdout, stderr } = await execAsync(fullCommand, { encoding: 'utf-8' });
-			if (stderr) console.error(`Manager stderr: ${stderr}`);
-			if (command === 'update') return {};
-			return JSON.parse(stdout);
-		} catch (error: any) {
-			console.error(`Error executing command: ${fullCommand}`, error);
-			if (error.code === 'ENOENT' || (error.stderr && error.stderr.includes('cannot find the path'))) {
-				throw new NodeOperationError(this.getNode(), `Could not find Python. Ensure the setup script has run. Path: ${fullCommand}`);
-			}
-			throw new NodeOperationError(this.getNode(), `Failed to execute manager.py command: ${command}. Raw Error: ${getErrorMessage(error)}`);
-		}
-	}
+    // This branch handles commands that don't need to stream input data (like 'list' or 'update')
+    if (!inputData) {
+        const fullCommand = `"${pythonPath}" "${managerPath}" ${command}`;
+        try {
+            const { stdout, stderr } = await execAsync(fullCommand, { encoding: 'utf-8' });
+            if (stderr) console.error(`Manager stderr: ${stderr}`);
+            if (command === 'update') return {}; // 'update' command doesn't return JSON
+            return JSON.parse(stdout);
+        } catch (error: any) {
+            console.error(`Error executing command: ${fullCommand}`, error);
+            if (error.code === 'ENOENT' || (error.stderr && error.stderr.includes('cannot find the path'))) {
+                throw new NodeOperationError(this.getNode(), `Could not find Python. Ensure the setup script has run. Path: ${fullCommand}`);
+            }
+            throw new NodeOperationError(this.getNode(), `Failed to execute manager.py command: ${command}. Raw Error: ${getErrorMessage(error)}`);
+        }
+    }
 
-	return new Promise((resolve, reject) => {
-		const process = spawn(pythonPath, [managerPath, command]);
-		let stdout = '';
-		let stderr = '';
-		process.stdout.on('data', (data) => stdout += data.toString());
-		process.stderr.on('data', (data) => stderr += data.toString());
-		process.on('close', (code) => {
-			if (stderr) console.error(`Manager stderr: ${stderr}`);
-			if (code !== 0) {
-				return reject(new NodeOperationError(this.getNode(), `Execution of '${command}' failed. Error: ${stderr}`));
-			}
-			try {
-				if (stdout.trim() === '') return resolve({});
-				resolve(JSON.parse(stdout));
-			} catch (e) {
-				reject(new NodeOperationError(this.getNode(), `Python script did not return valid JSON for '${command}'. Output: ${stdout}`));
-			}
-		});
-		process.on('error', (err) => reject(new NodeOperationError(this.getNode(), `Failed to spawn Python process. Error: ${err.message}`)));
-		process.stdin.write(JSON.stringify(inputData));
-		process.stdin.end();
-	});
+    // This branch handles commands that receive JSON data via stdin
+    return new Promise((resolve, reject) => {
+        const process = spawn(pythonPath, [managerPath, command]);
+        let stdout = '';
+        let stderr = '';
+        process.stdout.on('data', (data) => stdout += data.toString());
+        process.stderr.on('data', (data) => stderr += data.toString());
+        process.on('close', (code) => {
+            if (stderr) console.error(`Manager stderr: ${stderr}`);
+            if (code !== 0) {
+                return reject(new NodeOperationError(this.getNode(), `Execution of '${command}' failed with non-zero exit code. Error: ${stderr || 'Unknown error'}`));
+            }
+            try {
+                if (stdout.trim() === '') return resolve({});
+                resolve(JSON.parse(stdout));
+            } catch (e) {
+                reject(new NodeOperationError(this.getNode(), `Python script did not return valid JSON for '${command}'. Output: ${stdout}`));
+            }
+        });
+        process.on('error', (err) => reject(new NodeOperationError(this.getNode(), `Failed to spawn Python process. Error: ${err.message}`)));
+        process.stdin.write(JSON.stringify(inputData));
+        process.stdin.end();
+    });
 }
 
 // --- Main Node Class ---
 
 export class MediaManager implements INodeType {
-	description: INodeTypeDescription = {
-		displayName: 'Media Manager',
-		name: 'mediaManager',
-		icon: 'fa:cogs',
-		group: ['transform'],
-		version: 1,
-		description: 'Dynamically runs Python subcommands from the media-manager project.',
-		defaults: {
-			name: 'Media Manager',
-		},
-		inputs: [NodeConnectionType.Main],
-		outputs: [NodeConnectionType.Main],
-		properties: [
-			{
-				displayName: 'Subcommand',
-				name: 'subcommand',
-				type: 'options',
-				typeOptions: { loadOptionsMethod: 'getSubcommands' },
-				default: '',
-				required: true,
-			},
-			{
-				displayName: 'Processing Mode',
-				name: 'processingMode',
-				type: 'options',
-				typeOptions: {
-					loadOptionsMethod: 'getProcessingModes',
-					loadOptionsDependsOn: ['subcommand'],
-				},
-				default: '', // Default to empty to force a selection
-				required: true, // Make this required so parameters don't load until a mode is chosen
-				description: 'Choose how to process the incoming data.',
-			},
-			{
-				displayName: 'Parameters',
-				name: 'parameters',
-				type: 'resourceMapper',
-				default: { mappingMode: 'defineBelow', value: null },
-				typeOptions: {
-					loadOptionsDependsOn: ['subcommand', 'processingMode'],
-					resourceMapper: {
-						resourceMapperMethod: 'getSubcommandSchema',
-						mode: 'add',
-						fieldWords: { singular: 'parameter', plural: 'parameters' },
-					},
-				},
-			},
-		],
-	};
+    description: INodeTypeDescription = {
+        displayName: 'Media Manager',
+        name: 'mediaManager',
+        icon: 'fa:cogs',
+        group: ['transform'],
+        version: 1,
+        description: 'Dynamically runs Python subcommands from the media-manager project.',
+        defaults: {
+            name: 'Media Manager',
+        },
+        inputs: [NodeConnectionType.Main],
+        outputs: [NodeConnectionType.Main],
+        properties: [
+            {
+                displayName: 'Subcommand',
+                name: 'subcommand',
+                type: 'options',
+                typeOptions: { loadOptionsMethod: 'getSubcommands' },
+                default: '',
+                required: true,
+                description: 'The Python script to execute.',
+            },
+            {
+                displayName: 'Processing Mode',
+                name: 'processingMode',
+                type: 'options',
+                // UPDATED: This is now a static list, making the node's behavior explicit.
+                options: [
+                    {
+                        name: 'Process Each Item Individually',
+                        value: 'single',
+                        description: 'Runs the subcommand once for each incoming item.',
+                    },
+                    {
+                        name: 'Process All Items as a Single Batch',
+                        value: 'batch',
+                        description: 'Runs the subcommand once, sending all items in a single array.',
+                    },
+                ],
+                default: 'single',
+                required: true,
+                description: 'Choose how to process the incoming data.',
+            },
+            {
+                displayName: 'Parameters',
+                name: 'parameters',
+                type: 'resourceMapper',
+                default: { mappingMode: 'defineBelow', value: null },
+                typeOptions: {
+                    // UPDATED: The schema no longer depends on the processing mode.
+                    loadOptionsDependsOn: ['subcommand'],
+                    resourceMapper: {
+                        resourceMapperMethod: 'getSubcommandSchema',
+                        mode: 'add',
+                        fieldWords: { singular: 'parameter', plural: 'parameters' },
+                    },
+                },
+            },
+        ],
+    };
 
-	methods = {
-		loadOptions: {
-			async getSubcommands(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
-				try {
-					await executeManagerCommand.call(this, 'update');
-					const subcommands = await executeManagerCommand.call(this, 'list');
-					return Object.keys(subcommands)
-						.filter(name => !subcommands[name].error)
-						.map(name => ({ name, value: name }));
-				} catch (error) {
-					return [];
-				}
-			},
-			// This function now always returns the modes, regardless of how many there are.
-			async getProcessingModes(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
-				const subcommandName = this.getCurrentNodeParameter('subcommand') as string;
-				if (!subcommandName) return [];
-				try {
-					const subcommands = await executeManagerCommand.call(this, 'list');
-					const modes = subcommands[subcommandName]?.modes;
-					if (!modes) return [];
-					return Object.keys(modes).map(modeName => ({
-						name: modes[modeName].displayName || modeName,
-						value: modeName,
-					}));
-				} catch (error) {
-					return [];
-				}
-			},
-		},
-		resourceMapping: {
-			async getSubcommandSchema(this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
-				const subcommandName = this.getCurrentNodeParameter('subcommand') as string;
-				const processingMode = this.getCurrentNodeParameter('processingMode') as string;
+    methods = {
+        loadOptions: {
+            async getSubcommands(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+                try {
+                    await executeManagerCommand.call(this, 'update');
+                    const subcommands = await executeManagerCommand.call(this, 'list');
+                    return Object.keys(subcommands)
+                        .filter(name => !subcommands[name].error)
+                        .map(name => ({ name, value: name }));
+                } catch (error) {
+                    // This is expected if Python/venv is not set up yet. Return empty.
+                    return [];
+                }
+            },
+            // REMOVED: getProcessingModes is no longer needed as the options are static.
+        },
+        resourceMapping: {
+            async getSubcommandSchema(this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
+                const subcommandName = this.getCurrentNodeParameter('subcommand') as string;
 
-				// Only load the schema if both a subcommand AND a processing mode have been selected.
-				if (!subcommandName || !processingMode) return { fields: [] };
+                // Only load the schema if a subcommand has been selected.
+                if (!subcommandName) return { fields: [] };
 
-				try {
-					const subcommands = await executeManagerCommand.call(this, 'list');
-					const subcommandData = subcommands[subcommandName];
-					if (!subcommandData || !subcommandData.modes) return { fields: [] };
+                try {
+                    const subcommands = await executeManagerCommand.call(this, 'list');
+                    const subcommandData = subcommands[subcommandName];
+                    
+                    // UPDATED: Directly access the simplified 'input_schema' from the subcommand data.
+                    const pythonSchema = subcommandData?.input_schema || [];
 
-					const pythonSchema = subcommandData.modes[processingMode]?.input_schema || [];
+                    const n8nSchema: ResourceMapperField[] = pythonSchema.map((field: any) => ({
+                        id: field.name,
+                        displayName: field.displayName,
+                        required: field.required || false,
+                        display: true,
+                        type: field.type || 'string',
+                        defaultMatch: false,
+                        description: field.description || '',
+                        options: field.options,
+                        default: field.default,
+                    }));
+                    
+                    return { fields: n8nSchema };
+                } catch (error) {
+                    return { fields: [] };
+                }
+            },
+        },
+    };
 
-					const n8nSchema: ResourceMapperField[] = pythonSchema.map((field: any) => ({
-						id: field.name,
-						displayName: field.displayName,
-						required: field.required || false,
-						display: true,
-						type: field.type || 'string',
-						defaultMatch: false,
-						description: field.description || '',
-						options: field.options,
-						default: field.default,
-					}));
-					
-					return { fields: n8nSchema };
-				} catch (error) {
-					return { fields: [] };
-				}
-			},
-		},
-	};
+    async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
+        const items = this.getInputData();
+        const subcommand = this.getNodeParameter('subcommand', 0) as string;
+        const processingMode = this.getNodeParameter('processingMode', 0) as string;
+        const parameters = this.getNodeParameter('parameters', 0) as { value: object };
 
-	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
-		const items = this.getInputData();
-		const returnData: INodeExecutionData[] = [];
+        if (!subcommand) {
+            throw new NodeOperationError(this.getNode(), 'Please select a Subcommand before executing.');
+        }
 
-		for (let i = 0; i < items.length; i++) {
-			try {
-				const subcommand = this.getNodeParameter('subcommand', i) as string;
-				const processingMode = this.getNodeParameter('processingMode', i) as string;
-				const parameters = this.getNodeParameter('parameters', i) as { value: object };
-				
-				if (!processingMode) {
-					throw new NodeOperationError(this.getNode(), 'Please select a Processing Mode before executing the workflow.');
-				}
+        // --- BATCH PROCESSING LOGIC ---
+        if (processingMode === 'batch') {
+            if (items.length === 0) {
+                return [[]]; // Return empty output if no items are input
+            }
+            try {
+                // Collect all incoming items into a single array
+                const allItemsJson = items.map(item => item.json);
+                // Prepare a single payload for the Python script with an '@items' key
+                const inputData = { ...parameters.value, '@items': allItemsJson };
+                
+                const result = await executeManagerCommand.call(this, subcommand, inputData);
+                
+                // The Python script returns one result for the whole batch.
+                // We'll merge this result with the JSON of the *first* incoming item.
+                const newItem: INodeExecutionData = {
+                    json: { ...items[0].json, ...result },
+                    pairedItem: { item: 0 },
+                };
 
-				const inputData = { ...parameters.value, '@item': items[i].json, '@mode': processingMode };
-				
-				const result = await executeManagerCommand.call(this, subcommand, inputData);
-				
-				const newItem: INodeExecutionData = {
-					json: { ...items[i].json, ...result },
-					pairedItem: { item: i },
-				};
+                return [this.helpers.returnJsonArray([newItem])];
 
-				returnData.push(newItem);
+            } catch (error) {
+                if (this.continueOnFail()) {
+                    const errorData = items.map(item => ({ json: item.json, error: error as NodeOperationError, pairedItem: item.pairedItem }));
+                    return [this.helpers.returnJsonArray(errorData)];
+                }
+                throw error;
+            }
+        }
 
-			} catch (error) {
-				if (this.continueOnFail()) {
-					returnData.push({ json: items[i].json, error: error as NodeOperationError });
-					continue;
-				}
-				throw error;
-			}
-		}
+        // --- SINGLE ITEM PROCESSING LOGIC ---
+        else {
+            const returnData: INodeExecutionData[] = [];
+            for (let i = 0; i < items.length; i++) {
+                try {
+                    // For single mode, the parameters might be different for each item
+                    const itemParameters = this.getNodeParameter('parameters', i) as { value: object };
+                    // Prepare the payload with an '@item' key
+                    const inputData = { ...itemParameters.value, '@item': items[i].json };
+                    
+                    const result = await executeManagerCommand.call(this, subcommand, inputData);
+                    
+                    const newItem: INodeExecutionData = {
+                        json: { ...items[i].json, ...result },
+                        pairedItem: { item: i },
+                    };
 
-		return [this.helpers.returnJsonArray(returnData)];
-	}
+                    returnData.push(newItem);
+
+                } catch (error) {
+                    if (this.continueOnFail()) {
+                        returnData.push({ json: items[i].json, error: error as NodeOperationError, pairedItem: { item: i } });
+                        continue;
+                    }
+                    throw error;
+                }
+            }
+            return [this.helpers.returnJsonArray(returnData)];
+        }
+    }
 }
