@@ -60,7 +60,7 @@ INPUT_SCHEMA = [
 #
 # --- Linux/macOS ---
 # cd /path/to/your/Media-Manager-n8n-Node
-# source subcommands_envs/fastwan_video_gen/bin/activate
+# source subcommands_envs/fastwan_t2v_gen/bin/activate
 # pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 
 
