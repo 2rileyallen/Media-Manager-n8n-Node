@@ -254,6 +254,14 @@ export class MediaManager implements INodeType {
 
                     const result = await executeManagerCommand.call(this, subcommand, inputData);
 
+                    // Merge the result with the original item's data.
+                    const newItem: INodeExecutionData = {
+                        json: result,
+                        pairedItem: { item: i },
+                    };
+
+                    returnData.push(newItem);
+
                 } catch (error) {
                     if (this.continueOnFail()) {
                         returnData.push({ json: items[i].json, error: error as NodeOperationError, pairedItem: { item: i } });
