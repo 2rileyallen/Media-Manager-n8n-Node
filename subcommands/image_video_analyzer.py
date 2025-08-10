@@ -186,7 +186,7 @@ def main(input_data, tool_path):
         except Exception as e:
             processed_results.append({"error": f"An unexpected error occurred processing {file_path}: {str(e)}"})
 
-    print(json.dumps({"results": processed_results}, indent=4))
+    print(json.dumps(processed_results, indent=4))
 
 # --- Boilerplate for Direct Execution ---
 if __name__ == "__main__":
