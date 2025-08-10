@@ -111,6 +111,9 @@ def main(input_data, tool_path):
     # Suppress INFO and WARNING logs from libraries to keep stdout clean for JSON.
     # This must be done before importing modules that use the logging system.
     logging.basicConfig(level=logging.ERROR)
+    logging.getLogger("fastvideo").setLevel(logging.ERROR)
+    logging.getLogger("torch").setLevel(logging.ERROR)
+
 
     # CRITICAL: Import heavyweight dependencies here, not at the top level.
     from fastvideo import VideoGenerator
@@ -136,10 +139,11 @@ def main(input_data, tool_path):
 
         os.environ["FASTVIDEO_ATTENTION_BACKEND"] = attention_backend
 
+        # The 'cache_dir' parameter is not supported by this version of the library.
+        # It will use the default Hugging Face cache location automatically.
         generator = VideoGenerator.from_pretrained(
             model_name,
-            num_gpus=1, # Hardcoded to 1 as requested
-            cache_dir=tool_path
+            num_gpus=1 # Hardcoded to 1 as requested
         )
 
         # Prepare the final output path
