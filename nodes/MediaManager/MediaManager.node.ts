@@ -228,7 +228,7 @@ export class MediaManager implements INodeType {
                 // Note: The output handling here assumes the Python script returns a single
                 // JSON object that applies to all items. This might need adjustment later.
                 const newItem: INodeExecutionData = {
-                    json: { ...items[0].json, ...result },
+                    json: result,
                     pairedItem: { item: 0 },
                 };
 
