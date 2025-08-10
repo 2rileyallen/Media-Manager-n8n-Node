@@ -9,14 +9,10 @@ import logging
 # This section defines the contract with the Media Manager framework.
 
 # 1. DEPENDENCIES
-# The manager will install these packages into a dedicated virtual environment
-# for this subcommand. 'fastvideo' will pull in its own dependencies like
-# torch, diffusers, and transformers.
+# The manager will install these packages. PyTorch is now excluded because
+# it must be installed manually with a specific CUDA version.
 REQUIRES = [
-    "fastvideo==0.1.5",
-    "torch",
-    "torchvision",
-    "torchaudio"
+    "fastvideo==0.1.5"
 ]
 
 # 2. N8N UI SCHEMA
@@ -32,31 +28,12 @@ INPUT_SCHEMA = [
         "default": "A majestic eagle soaring through a cloudy sky at sunset."
     },
     {
-        "name": "image_path",
-        "displayName": "Input Image Path (Optional for 5B)",
-        "type": "string",
-        "description": "The absolute path to an input image for image-to-video generation. This is only used by models that support it (e.g., FastWan 2.2).",
-        "default": ""
-    },
-    {
         "name": "output_path",
         "displayName": "Output Path",
         "type": "string",
         "required": True,
         "description": "The absolute path for the output video. Can be a directory (e.g., 'C:\\videos') or a full file path (e.g., 'C:\\videos\\my_video.mp4').",
         "default": ""
-    },
-    {
-        "name": "model_name",
-        "displayName": "Pre-trained Model",
-        "type": "options",
-        "options": [
-            {"name": "FastWan 2.2 - 5B (Text/Image-to-Video)", "value": "FastVideo/FastWan2.2-TI2V-5B"},
-            {"name": "FastWan 2.1 - 1.3B (Text-to-Video)", "value": "FastVideo/FastWan2.1-T2V-1.3B-Diffusers"}
-        ],
-        "required": True,
-        "description": "Select the base model for video generation. The 5B model supports both text and images as input.",
-        "default": "FastVideo/FastWan2.2-TI2V-5B"
     },
     {
         "name": "attention_backend",
@@ -72,6 +49,21 @@ INPUT_SCHEMA = [
     }
 ]
 
+# 3. SPECIAL SETUP INSTRUCTIONS
+# This tool requires a one-time manual installation of the GPU-enabled PyTorch library.
+# After the manager creates the environment for this tool, run these commands in your terminal:
+#
+# --- Windows ---
+# cd C:\path\to\your\Media-Manager-n8n-Node
+# call subcommands_envs\fastwan_video_gen\Scripts\activate
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+#
+# --- Linux/macOS ---
+# cd /path/to/your/Media-Manager-n8n-Node
+# source subcommands_envs/fastwan_video_gen/bin/activate
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+
 # --- Helper Functions ---
 def sanitize_filename(name):
     """Removes invalid characters from a string to make it a valid filename."""
@@ -80,26 +72,18 @@ def sanitize_filename(name):
 def prepare_output_path(user_path, prompt):
     """
     Prepares a full, valid output file path from user input.
-    - If user_path is a directory, it creates a default filename.
-    - If user_path is a file, it uses it.
-    - Ensures the final path has a .mp4 extension.
     """
-    # Check if the provided path is a directory
     if os.path.isdir(user_path) or not os.path.splitext(user_path)[1]:
         output_dir = user_path
-        # Create a default filename from the prompt
-        sanitized_prompt = sanitize_filename(prompt)[:50] # Truncate for safety
+        sanitized_prompt = sanitize_filename(prompt)[:50]
         timestamp = int(time.time())
         filename = f"{sanitized_prompt}_{timestamp}.mp4"
     else:
         output_dir = os.path.dirname(user_path)
         base_name = os.path.basename(user_path)
-        # Ensure the extension is .mp4
         filename = os.path.splitext(base_name)[0] + ".mp4"
 
-    # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
-    
     return os.path.join(output_dir, filename)
 
 
@@ -108,14 +92,10 @@ def main(input_data, tool_path):
     """
     Main function to process input and generate videos using the FastVideo library.
     """
-    # Suppress INFO and WARNING logs from libraries to keep stdout clean for JSON.
-    # This must be done before importing modules that use the logging system.
     logging.basicConfig(level=logging.ERROR)
     logging.getLogger("fastvideo").setLevel(logging.ERROR)
     logging.getLogger("torch").setLevel(logging.ERROR)
 
-
-    # CRITICAL: Import heavyweight dependencies here, not at the top level.
     from fastvideo import VideoGenerator
 
     processed_results = []
@@ -133,35 +113,22 @@ def main(input_data, tool_path):
         if not prompt or not user_output_path:
             raise ValueError("Missing required parameters in item: 'prompt' and 'output_path' are required.")
 
-        model_name = item.get("model_name", "FastVideo/FastWan2.2-TI2V-5B")
+        # Hardcode the model since we are only supporting this one for now.
+        model_name = "FastVideo/FastWan2.1-T2V-1.3B-Diffusers"
         attention_backend = item.get("attention_backend", "SLIDING_TILE_ATTN")
-        image_path = item.get("image_path")
 
         os.environ["FASTVIDEO_ATTENTION_BACKEND"] = attention_backend
 
-        # The 'cache_dir' parameter is not supported by this version of the library.
-        # It will use the default Hugging Face cache location automatically.
-        generator = VideoGenerator.from_pretrained(
-            model_name,
-            num_gpus=1 # Hardcoded to 1 as requested
-        )
-
-        # Prepare the final output path
+        generator = VideoGenerator.from_pretrained(model_name, num_gpus=1)
         final_video_path = prepare_output_path(user_output_path, prompt)
         
-        # Build the generation arguments
         gen_kwargs = {
             "prompt": prompt,
             "return_frames": False,
             "output_path": final_video_path,
             "save_video": True
         }
-
-        # Add image_path to arguments ONLY if it's provided and the model supports it
-        if image_path and os.path.exists(image_path) and "TI2V" in model_name:
-            gen_kwargs["image_path"] = image_path
         
-        # Generate the video using keyword arguments
         generator.generate_video(**gen_kwargs)
 
         processed_results.append({
@@ -180,15 +147,12 @@ if __name__ == "__main__":
     if stdin_content:
         try:
             parsed_data = json.loads(stdin_content)
-            
             subcommand_tool_path = os.environ.get("SUBCOMMAND_TOOL_PATH")
             if not subcommand_tool_path:
                 raise EnvironmentError("SUBCOMMAND_TOOL_PATH environment variable not set by manager.")
             
             os.makedirs(subcommand_tool_path, exist_ok=True)
-            
             main(parsed_data, subcommand_tool_path)
-
         except json.JSONDecodeError:
             error_output = {"status": "error", "message": "Invalid JSON input from stdin."}
             print(json.dumps(error_output), file=sys.stderr)
