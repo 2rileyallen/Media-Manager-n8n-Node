@@ -33,9 +33,9 @@ INPUT_SCHEMA = [
     },
     {
         "name": "_note",
-        "displayName": "Note: This tool processes each media file individually, \nregardless of the 'Processing Mode' selected.",
+        "displayName": "Note",
         "type": "notice",
-        "default": ""
+        "default": "This tool processes each media file individually, regardless of the 'Processing Mode' selected."
     }
 ]
 
