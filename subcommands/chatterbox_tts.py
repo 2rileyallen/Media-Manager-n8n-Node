@@ -53,13 +53,6 @@ INPUT_SCHEMA = [
         "type": "number",
         "default": 0.5,
         "description": "Classifier-Free Guidance weight. Higher values are more faithful to the prompt."
-    },
-    {
-    "name": "_chatterbox_note",
-    "displayName": "Note",
-    "type": "notice",
-    "default": "",
-    "description": "In batch mode, the 'Output File Path' from the first item will be used for the final combined audio. If a directory is provided, a default filename will be used."
     }
 ]
 

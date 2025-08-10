@@ -92,7 +92,7 @@ export class MediaManager implements INodeType {
     description: INodeTypeDescription = {
         displayName: 'Media Manager',
         name: 'mediaManager',
-        icon: 'fa:cogs',
+        icon: 'file:icons/business-icon.svg', 
         group: ['transform'],
         version: 1,
         description: 'Dynamically runs Python subcommands from the media-manager project.',
