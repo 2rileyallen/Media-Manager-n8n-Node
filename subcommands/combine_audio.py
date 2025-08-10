@@ -33,7 +33,7 @@ INPUT_SCHEMA = [
         "type": "options",
         "default": "append",
         "options": [
-            {"name": "Append", "value": "append"},
+            {"name": "Append (Default if not chosen)", "value": "append"},
             {"name": "Crossfade", "value": "crossfade"},
             {"name": "Dual-Fade", "value": "dual-fade"},
             {"name": "Fade In", "value": "fadein"},
@@ -75,8 +75,7 @@ def resolve_path(output_path):
 
 def apply_and_combine(items):
     """
-    Applies transitions and effects using the original, robust logic,
-    now adapted for the new n8n input structure.
+    Applies transitions and effects, now with robust duration handling and improved output.
     """
     from pydub import AudioSegment
 
@@ -94,90 +93,104 @@ def apply_and_combine(items):
 
         print(f"Processing single item with effect: '{transition_type}'", file=sys.stderr)
 
+        if duration_ms > len(audio):
+            print(f"Warning: Duration ({duration_ms}ms) is longer than the audio clip ({len(audio)}ms). Capping duration.", file=sys.stderr)
+            duration_ms = len(audio)
+
         if transition_type in ["fadein", "dual-fade"]:
             audio = audio.fade_in(duration_ms)
-        if transition_type in ["fadeout", "dual-fade", "crossfade"]: # Crossfade on single item is a fadeout
+        if transition_type in ["fadeout", "dual-fade", "crossfade"]:
             audio = audio.fade_out(duration_ms)
         
+        # UPDATED: Dynamically determine output format from file extension
+        output_format = os.path.splitext(final_output_path)[1][1:]
         print(f"Exporting single processed file to: {final_output_path}", file=sys.stderr)
-        audio.export(final_output_path, format="mp3")
+        audio.export(final_output_path, format=output_format)
         return {
             "status": "success",
             "message": "Single file processed successfully.",
             "output_file": final_output_path,
+            "total_duration_seconds": round(len(audio) / 1000, 2),
+            "processed_files_count": 1,
         }
 
     # --- Batch Processing Logic ---
     final_output_path = resolve_path(items[0].get("output_path"))
 
-    # 1. Load and apply initial effect to the first track
     first_item = items[0]
     combined_audio = AudioSegment.from_file(first_item.get("file"))
     first_transition_type = first_item.get("transition_type", "append")
     first_duration_ms = int(first_item.get("transition_duration", 2.0) * 1000)
 
     if first_transition_type in ["fadein", "dual-fade"]:
+        safe_duration = min(first_duration_ms, len(combined_audio))
         print(f"Applying initial '{first_transition_type}' to {first_item.get('file')}", file=sys.stderr)
-        combined_audio = combined_audio.fade_in(first_duration_ms)
+        combined_audio = combined_audio.fade_in(safe_duration)
 
-    # 2. Loop through remaining tracks to apply transitions
     for i in range(1, len(items)):
         previous_item = items[i-1]
         current_item = items[i]
         
         transition_type = previous_item.get("transition_type", "append")
         duration_ms = int(previous_item.get("transition_duration", 2.0) * 1000)
+        
+        current_audio = AudioSegment.from_file(current_item.get("file"))
+
+        safe_duration_ms = min(duration_ms, len(combined_audio), len(current_audio))
+        if safe_duration_ms < duration_ms:
+            print(f"Warning: Transition duration ({duration_ms}ms) is too long. Capping to {safe_duration_ms}ms.", file=sys.stderr)
 
         if transition_type in ["fadeout", "dual-fade"]:
             print(f"Applying fade out from '{transition_type}' on {previous_item.get('file')}", file=sys.stderr)
-            combined_audio = combined_audio.fade_out(duration_ms)
-        
-        current_audio = AudioSegment.from_file(current_item.get("file"))
+            combined_audio = combined_audio.fade_out(min(duration_ms, len(combined_audio)))
         
         current_transition_type = current_item.get("transition_type", "append")
         current_duration_ms = int(current_item.get("transition_duration", 2.0) * 1000)
         
         if current_transition_type in ["fadein", "dual-fade"]:
             print(f"Applying fade in from '{current_transition_type}' on {current_item.get('file')}", file=sys.stderr)
-            current_audio = current_audio.fade_in(current_duration_ms)
+            current_audio = current_audio.fade_in(min(current_duration_ms, len(current_audio)))
             
         print(f"Applying transition '{transition_type}' from {previous_item.get('file')} to {current_item.get('file')}", file=sys.stderr)
         
         if transition_type == "crossfade":
-            combined_audio = combined_audio.append(current_audio, crossfade=duration_ms)
+            combined_audio = combined_audio.append(current_audio, crossfade=safe_duration_ms)
         elif transition_type == "overlap":
-            combined_audio = combined_audio.overlay(current_audio, position=len(combined_audio) - duration_ms)
+            combined_audio = combined_audio.overlay(current_audio, position=len(combined_audio) - safe_duration_ms)
         elif transition_type == "silence":
             combined_audio += AudioSegment.silent(duration=duration_ms) + current_audio
         else:
             combined_audio += current_audio
 
-    # 3. Handle final effect on the last track
     last_item = items[-1]
     final_transition_type = last_item.get("transition_type", "append")
     final_duration_ms = int(last_item.get("transition_duration", 2.0) * 1000)
+    safe_final_duration_ms = min(final_duration_ms, len(combined_audio))
 
     if final_transition_type in ["fadeout", "dual-fade", "crossfade"]:
         print(f"Applying final fade out from '{final_transition_type}' to {last_item.get('file')}", file=sys.stderr)
-        combined_audio = combined_audio.fade_out(final_duration_ms)
+        combined_audio = combined_audio.fade_out(safe_final_duration_ms)
     elif final_transition_type == "silence":
         print(f"Applying final silence to {last_item.get('file')}", file=sys.stderr)
         combined_audio += AudioSegment.silent(duration=final_duration_ms)
         
+    # UPDATED: Dynamically determine output format from file extension
+    output_format = os.path.splitext(final_output_path)[1][1:]
     print(f"Exporting final combined audio to: {final_output_path}", file=sys.stderr)
-    combined_audio.export(final_output_path, format="mp3")
+    combined_audio.export(final_output_path, format=output_format)
 
     return {
         "status": "success",
         "message": f"{len(items)} tracks combined successfully.",
         "output_file": final_output_path,
+        "total_duration_seconds": round(len(combined_audio) / 1000, 2),
+        "processed_files_count": len(items),
     }
 
 # --- Main Execution Logic ---
 
 def main(input_data, tool_path):
     try:
-        # This dictionary maps the human-readable 'name' from n8n to the lowercase 'value' the script expects.
         transition_map = {
             "Append (Default if not chosen)": "append",
             "Crossfade": "crossfade",
@@ -199,14 +212,12 @@ def main(input_data, tool_path):
         if not items_to_process:
             raise ValueError("No items were provided to the subcommand.")
 
-        # Normalize the transition_type value for each item
         for item in items_to_process:
-            human_readable_type = item.get("transition_type", "append")
+            human_readable_type = item.get("transition_type", "Append (Default if not chosen)")
             item["transition_type"] = transition_map.get(human_readable_type, "append")
 
         result = apply_and_combine(items_to_process)
         
-        # The ONLY print to stdout should be the final, clean JSON result.
         print(json.dumps(result, indent=2))
 
     except Exception as e:
